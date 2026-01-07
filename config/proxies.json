@@ -1,0 +1,25 @@
+{
+  "proxies": [
+    {
+      "id": 1,
+      "host": "192.168.1.10",
+      "port": 22,
+      "username": "admin",
+      "password": "password123",
+      "group": "프로덕션",
+      "traffic_log_path": "/var/log/proxy.log",
+      "snmp_community": "public"
+    },
+    {
+      "id": 2,
+      "host": "192.168.1.11",
+      "port": 22,
+      "username": "admin",
+      "password": "password123",
+      "group": "프로덕션",
+      "traffic_log_path": "/var/log/proxy.log",
+      "snmp_community": "public"
+    }
+  ]
+}
+
