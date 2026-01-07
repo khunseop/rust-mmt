@@ -13,12 +13,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         .split(frame.size());
 
     // 탭 헤더
-    let tabs = Tabs::new(vec!["자원사용률", "세션브라우저", "트래픽로그"])
+    let tabs = Tabs::new(vec!["프록시관리", "자원사용률", "세션브라우저", "트래픽로그"])
         .block(Block::default().borders(Borders::ALL).title(app.title.clone()))
         .select(match app.current_tab {
-            TabIndex::ResourceUsage => 0,
-            TabIndex::SessionBrowser => 1,
-            TabIndex::TrafficLogs => 2,
+            TabIndex::ProxyManagement => 0,
+            TabIndex::ResourceUsage => 1,
+            TabIndex::SessionBrowser => 2,
+            TabIndex::TrafficLogs => 3,
         })
         .style(Style::default().fg(Color::White))
         .highlight_style(
@@ -31,28 +32,25 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // 각 탭의 콘텐츠
     match app.current_tab {
+        TabIndex::ProxyManagement => draw_proxy_management(frame, app, chunks[1]),
         TabIndex::ResourceUsage => draw_resource_usage(frame, app, chunks[1]),
         TabIndex::SessionBrowser => draw_session_browser(frame, app, chunks[1]),
         TabIndex::TrafficLogs => draw_traffic_logs(frame, app, chunks[1]),
     }
 }
 
-fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
+fn draw_proxy_management(frame: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
-        .constraints([
-            Constraint::Length(3),  // 헤더
-            Constraint::Length(8),  // 프록시 리스트
-            Constraint::Min(0),     // 데이터 테이블
-        ])
+        .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(area);
 
     // 헤더 영역
     let header = Block::default()
         .borders(Borders::ALL)
-        .title("자원 사용률 모니터링");
+        .title("프록시 관리");
     frame.render_widget(header, chunks[0]);
 
-    // 프록시 리스트 영역
+    // 프록시 목록 테이블
     let proxy_table = if app.proxies.is_empty() {
         Table::new(
             vec![Row::new(vec![Cell::from("프록시가 설정되지 않았습니다. config/proxies.json을 확인하세요.")])],
@@ -104,6 +102,68 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         .block(Block::default().borders(Borders::ALL).title(format!("프록시 목록 ({}개)", app.proxies.len())))
     };
     frame.render_widget(proxy_table, chunks[1]);
+}
+
+fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
+    let chunks = Layout::default()
+        .constraints([
+            Constraint::Length(3),  // 헤더
+            Constraint::Length(5),  // 설정 및 정보
+            Constraint::Min(0),     // 데이터 테이블
+        ])
+        .split(area);
+
+    // 헤더 영역
+    let header = Block::default()
+        .borders(Borders::ALL)
+        .title("자원 사용률 모니터링");
+    frame.render_widget(header, chunks[0]);
+
+    // 설정 및 정보 영역
+    let info_chunks = Layout::default()
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
+
+    // 그룹 선택
+    let group_text = if app.proxies.is_empty() {
+        "프록시가 설정되지 않았습니다.".to_string()
+    } else {
+        format!("그룹: [{}]\n(Shift+←/→: 변경)", app.resource_usage.get_group_display_name())
+    };
+    
+    let group_block = Block::default()
+        .borders(Borders::ALL)
+        .title("필터");
+    
+    use ratatui::widgets::Paragraph;
+    frame.render_widget(
+        Paragraph::new(group_text)
+            .block(group_block)
+            .style(Style::default().fg(Color::Cyan)),
+        info_chunks[0],
+    );
+
+    // 수집 주기 및 마지막 수집 시간
+    let last_collection_str = match app.resource_usage.last_collection_time {
+        Some(time) => format!("{}", time.format("%Y-%m-%d %H:%M:%S")),
+        None => "수집 이력 없음".to_string(),
+    };
+    let interval_text = format!(
+        "수집 주기: [{}]\n마지막 수집: {}\n(+/-: 주기 변경, C: 수집)",
+        app.resource_usage.get_interval_display(),
+        last_collection_str
+    );
+    
+    let interval_block = Block::default()
+        .borders(Borders::ALL)
+        .title("설정");
+    
+    frame.render_widget(
+        Paragraph::new(interval_text)
+            .block(interval_block)
+            .style(Style::default().fg(Color::Green)),
+        info_chunks[1],
+    );
 
     // 테이블 영역
     let table = if app.resource_usage.data.is_empty() {

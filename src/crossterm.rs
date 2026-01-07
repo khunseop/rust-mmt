@@ -65,9 +65,23 @@ fn run_app<B: Backend>(
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Left | KeyCode::Char('h') => app.on_left(),
+                        KeyCode::Left | KeyCode::Char('h') => {
+                            // Shift+Left 또는 Ctrl+Left는 그룹 변경, 아니면 탭 변경
+                            if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                                app.on_group_previous();
+                            } else {
+                                app.on_left();
+                            }
+                        }
                         KeyCode::Up | KeyCode::Char('k') => app.on_up(),
-                        KeyCode::Right | KeyCode::Char('l') => app.on_right(),
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            // Shift+Right 또는 Ctrl+Right는 그룹 변경, 아니면 탭 변경
+                            if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                                app.on_group_next();
+                            } else {
+                                app.on_right();
+                            }
+                        }
                         KeyCode::Down | KeyCode::Char('j') => app.on_down(),
                         KeyCode::Tab => app.on_right(),
                         KeyCode::BackTab => app.on_left(),
