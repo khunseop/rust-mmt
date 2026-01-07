@@ -148,20 +148,62 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         Some(time) => format!("{}", time.format("%Y-%m-%d %H:%M:%S")),
         None => "수집 이력 없음".to_string(),
     };
+    
+    // 스피너 문자 (회전 애니메이션)
+    let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinner = spinner_chars[app.resource_usage.spinner_frame % spinner_chars.len()];
+    
+    // 수집 상태 메시지
+    let (status_text, status_style) = match app.resource_usage.collection_status {
+        crate::app::CollectionStatus::Idle => {
+            ("대기 중".to_string(), Style::default().fg(Color::Gray))
+        }
+        crate::app::CollectionStatus::Starting => {
+            (format!("{} 수집 시작 중...", spinner), Style::default().fg(Color::Yellow))
+        }
+        crate::app::CollectionStatus::Collecting => {
+            let progress_text = if let Some((completed, total)) = app.resource_usage.collection_progress {
+                format!("{} 수집 중... ({}/{})", spinner, completed, total)
+            } else {
+                format!("{} 수집 중...", spinner)
+            };
+            (progress_text, Style::default().fg(Color::Yellow))
+        }
+        crate::app::CollectionStatus::Success => {
+            let success_text = if let Some((completed, _total)) = app.resource_usage.collection_progress {
+                format!("✅ 수집 완료! ({}개 성공)", completed)
+            } else {
+                "✅ 수집 완료!".to_string()
+            };
+            (success_text, Style::default().fg(Color::Green))
+        }
+        crate::app::CollectionStatus::Failed => {
+            let error_text = if let Some(ref error) = app.resource_usage.last_error {
+                format!("❌ 수집 실패: {}", error)
+            } else {
+                "❌ 수집 실패".to_string()
+            };
+            (error_text, Style::default().fg(Color::Red))
+        }
+    };
+    
     let interval_text = format!(
-        "수집 주기: [{}]\n마지막 수집: {}\n(+/-: 주기 변경, C: 수집)",
+        "수집 주기: [{}]\n마지막 수집: {}\n상태: {}\n(+/-: 주기 변경, C: 수집)",
         app.resource_usage.get_interval_display(),
-        last_collection_str
+        last_collection_str,
+        status_text
     );
     
     let interval_block = Block::default()
         .borders(Borders::ALL)
         .title("설정");
     
+    let interval_style = status_style;
+    
     frame.render_widget(
         Paragraph::new(interval_text)
             .block(interval_block)
-            .style(Style::default().fg(Color::Green)),
+            .style(interval_style),
         info_chunks[1],
     );
 

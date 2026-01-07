@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     io,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -13,6 +14,7 @@ use ratatui::{
     backend::{Backend, CrosstermBackend},
     Terminal,
 };
+use tokio::sync::Mutex;
 
 use crate::{app::App, ui};
 
@@ -31,8 +33,12 @@ pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
         eprintln!("config/proxies.json 파일을 확인하세요.");
     }
 
+    // 런타임 생성
+    let rt = tokio::runtime::Runtime::new()?;
+    let app_mutex = Arc::new(Mutex::new(app));
+
     // 앱 실행
-    let app_result = run_app(&mut terminal, app, tick_rate);
+    let app_result = run_app(&mut terminal, app_mutex, tick_rate, rt);
 
     // 터미널 복원
     disable_raw_mode()?;
@@ -52,54 +58,103 @@ pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
 
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
-    mut app: App,
+    app: Arc<Mutex<App>>,
     tick_rate: Duration,
+    rt: tokio::runtime::Runtime,
 ) -> io::Result<()> {
     let mut last_tick = Instant::now();
+    let mut collection_task: Option<tokio::task::JoinHandle<()>> = None;
 
     loop {
-        terminal.draw(|frame| ui::draw(frame, &mut app))?;
+        // UI 렌더링
+        {
+            let mut app_guard = rt.block_on(app.lock());
+            terminal.draw(|frame| ui::draw(frame, &mut *app_guard))?;
+        }
 
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
+                    let mut app_guard = rt.block_on(app.lock());
                     match key.code {
                         KeyCode::Left | KeyCode::Char('h') => {
-                            // Shift+Left 또는 Ctrl+Left는 그룹 변경, 아니면 탭 변경
                             if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
-                                app.on_group_previous();
+                                app_guard.on_group_previous();
                             } else {
-                                app.on_left();
+                                app_guard.on_left();
                             }
                         }
-                        KeyCode::Up | KeyCode::Char('k') => app.on_up(),
+                        KeyCode::Up | KeyCode::Char('k') => app_guard.on_up(),
                         KeyCode::Right | KeyCode::Char('l') => {
-                            // Shift+Right 또는 Ctrl+Right는 그룹 변경, 아니면 탭 변경
                             if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
-                                app.on_group_next();
+                                app_guard.on_group_next();
                             } else {
-                                app.on_right();
+                                app_guard.on_right();
                             }
                         }
-                        KeyCode::Down | KeyCode::Char('j') => app.on_down(),
-                        KeyCode::Tab => app.on_right(),
-                        KeyCode::BackTab => app.on_left(),
-                        KeyCode::Char(c) => app.on_key(c),
-                        KeyCode::Esc => app.should_quit = true,
+                        KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
+                        KeyCode::Tab => app_guard.on_right(),
+                        KeyCode::BackTab => app_guard.on_left(),
+                        KeyCode::Char('c') | KeyCode::Char('C') => {
+                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
+                                && !app_guard.is_collecting
+                            {
+                                // 수집 시작
+                                let app_clone = app.clone();
+                                collection_task = Some(rt.spawn(async move {
+                                    let mut app = app_clone.lock().await;
+                                    if let Err(e) = app.start_collection().await {
+                                        eprintln!("수집 실패: {}", e);
+                                    }
+                                }));
+                            }
+                        }
+                        KeyCode::Char(c) => app_guard.on_key(c),
+                        KeyCode::Esc => app_guard.should_quit = true,
                         _ => {}
+                    }
+                    
+                    let should_quit = app_guard.should_quit;
+                    drop(app_guard);
+                    
+                    if should_quit {
+                        return Ok(());
                     }
                 }
             }
         }
 
+        // 수집 작업 완료 확인
+        if let Some(task) = &mut collection_task {
+            if task.is_finished() {
+                collection_task = None;
+                // 수집 완료 후 3초 후에 상태를 Idle로 변경
+                let app_clone = app.clone();
+                rt.spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                    let mut app_guard = app_clone.lock().await;
+                    if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Success
+                        || app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Failed {
+                        app_guard.resource_usage.collection_status = crate::app::CollectionStatus::Idle;
+                        app_guard.resource_usage.collection_progress = None;
+                    }
+                });
+            }
+        }
+
         if last_tick.elapsed() >= tick_rate {
-            app.on_tick();
+            let mut app_guard = rt.block_on(app.lock());
+            app_guard.on_tick();
+            drop(app_guard);
             last_tick = Instant::now();
         }
 
-        if app.should_quit {
-            return Ok(());
+        {
+            let app_guard = rt.block_on(app.lock());
+            if app_guard.should_quit {
+                return Ok(());
+            }
         }
     }
 }

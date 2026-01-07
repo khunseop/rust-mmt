@@ -1,6 +1,10 @@
 mod app;
 mod crossterm;
 mod ui;
+mod snmp;
+mod ssh;
+mod collector;
+mod csv_writer;
 
 use std::time::Duration;
 

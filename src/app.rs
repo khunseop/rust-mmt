@@ -69,6 +69,8 @@ pub struct ResourceData {
     pub collected_at: chrono::DateTime<chrono::Local>,
 }
 
+// Clone 구현을 위해 Proxy도 Clone 가능해야 함
+
 /// 세션 데이터
 #[derive(Debug, Clone)]
 pub struct SessionData {
@@ -78,6 +80,17 @@ pub struct SessionData {
     pub server_ip: Option<String>,
     pub url: Option<String>,
     pub protocol: Option<String>,
+}
+
+/// 수집 상태
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum CollectionStatus {
+    #[default]
+    Idle,           // 대기 중
+    Starting,       // 시작 중
+    Collecting,    // 수집 중
+    Success,       // 성공
+    Failed,        // 실패
 }
 
 /// 자원 사용률 탭 상태
@@ -90,6 +103,10 @@ pub struct ResourceUsageState {
     pub available_groups: Vec<String>,
     pub collection_interval_sec: u64, // 수집 주기 (초)
     pub last_collection_time: Option<chrono::DateTime<chrono::Local>>,
+    pub last_error: Option<String>, // 마지막 에러 메시지
+    pub collection_status: CollectionStatus, // 수집 상태
+    pub collection_progress: Option<(usize, usize)>, // (완료된 수, 전체 수)
+    pub spinner_frame: usize, // 스피너 애니메이션 프레임
 }
 
 impl ResourceUsageState {
@@ -102,6 +119,10 @@ impl ResourceUsageState {
             available_groups: Vec::new(),
             collection_interval_sec: 60, // 기본 60초
             last_collection_time: None,
+            last_error: None,
+            collection_status: CollectionStatus::Idle,
+            collection_progress: None,
+            spinner_frame: 0,
         }
     }
 
@@ -298,18 +319,20 @@ pub struct App {
     pub resource_usage: ResourceUsageState,
     pub session_browser: SessionBrowserState,
     pub traffic_logs: TrafficLogsState,
+    pub is_collecting: bool, // 수집 중 플래그
 }
 
 impl App {
     pub fn new(title: String) -> Self {
         Self {
             title,
-            current_tab: TabIndex::ResourceUsage,
+            current_tab: TabIndex::ProxyManagement,
             should_quit: false,
             proxies: Vec::new(),
             resource_usage: ResourceUsageState::new(),
             session_browser: SessionBrowserState::new(),
             traffic_logs: TrafficLogsState::new(),
+            is_collecting: false,
         }
     }
 
@@ -324,7 +347,11 @@ impl App {
     }
 
     pub fn on_tick(&mut self) {
-        // 주기적으로 실행할 작업 (필요시)
+        // 스피너 애니메이션 업데이트
+        if self.resource_usage.collection_status == CollectionStatus::Collecting
+            || self.resource_usage.collection_status == CollectionStatus::Starting {
+            self.resource_usage.spinner_frame = (self.resource_usage.spinner_frame + 1) % 4;
+        }
     }
 
     pub fn on_left(&mut self) {
@@ -384,8 +411,91 @@ impl App {
                     self.resource_usage.decrease_interval();
                 }
             }
+            'c' | 'C' => {
+                if self.current_tab == TabIndex::ResourceUsage && !self.is_collecting {
+                    // 수집 시작은 이벤트 루프에서 처리해야 하므로 플래그만 설정
+                    // 실제 수집은 crossterm.rs의 이벤트 루프에서 처리
+                }
+            }
             _ => {}
         }
+    }
+
+    /// 자원 사용률 수집 시작 (비동기)
+    pub async fn start_collection(&mut self) -> anyhow::Result<()> {
+        if self.is_collecting {
+            return Ok(()); // 이미 수집 중이면 무시
+        }
+
+        // 설정 파일 읽기
+        let config_path = "config/resource_config.json";
+        let content = std::fs::read_to_string(config_path)?;
+        let config: serde_json::Value = serde_json::from_str(&content)?;
+        
+        let community = config["community"]
+            .as_str()
+            .unwrap_or("public")
+            .to_string();
+        
+        let oids_json = config.get("oids").and_then(|v| v.as_object());
+        let mut oids = std::collections::HashMap::new();
+        if let Some(oids_obj) = oids_json {
+            for (key, value) in oids_obj {
+                if let Some(oid_str) = value.as_str() {
+                    oids.insert(key.clone(), oid_str.to_string());
+                }
+            }
+        }
+
+        // 필터링된 프록시 목록 가져오기
+        let proxies_to_collect: Vec<Proxy> = match &self.resource_usage.selected_group {
+            None => self.proxies.clone(), // 전체
+            Some(group) => self
+                .proxies
+                .iter()
+                .filter(|p| &p.group == group)
+                .cloned()
+                .collect(),
+        };
+
+        if proxies_to_collect.is_empty() {
+            return Ok(()); // 수집할 프록시가 없음
+        }
+
+        self.is_collecting = true;
+        self.resource_usage.last_error = None;
+        self.resource_usage.collection_status = CollectionStatus::Starting;
+        self.resource_usage.collection_progress = Some((0, proxies_to_collect.len()));
+
+        // 수집 실행
+        let collector = crate::collector::ResourceCollector::new(oids, community);
+        self.resource_usage.collection_status = CollectionStatus::Collecting;
+        
+        match collector.collect_multiple(&proxies_to_collect).await {
+            Ok(results) => {
+                // 결과 저장
+                let results_count = results.len();
+                self.resource_usage.data = results;
+                self.resource_usage.last_collection_time = Some(chrono::Local::now());
+                self.resource_usage.collection_status = CollectionStatus::Success;
+                self.resource_usage.collection_progress = Some((results_count, proxies_to_collect.len()));
+
+                // CSV 저장
+                if let Err(e) = crate::csv_writer::CsvWriter::save_resource_usage(&self.resource_usage.data) {
+                    self.resource_usage.last_error = Some(format!("CSV 저장 실패: {}", e));
+                }
+            }
+            Err(e) => {
+                // 수집 실패 - 에러 메시지 저장
+                self.resource_usage.last_error = Some(format!("수집 실패: {}", e));
+                self.resource_usage.collection_status = CollectionStatus::Failed;
+                self.resource_usage.data = Vec::new();
+                self.resource_usage.collection_progress = None;
+            }
+        }
+
+        self.is_collecting = false;
+        Ok(())
     }
 }
 

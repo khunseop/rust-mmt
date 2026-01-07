@@ -1,0 +1,45 @@
+[[2026-01-07 22:46:38] 2026-01-07 22:46:38] SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:46:38] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:46:40] 2026-01-07 22:46:40SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)] 
+SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:46:40] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:50:282026-01-07 22:50:28] ] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+
+[2026-01-07 22:50:28] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:51:082026-01-07 22:51:08] ] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+
+[2026-01-07 22:51:08] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:51:38] 2026-01-07 22:51:38SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)] 
+SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:51:38] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:51:41] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:51:41] SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)[
+2026-01-07 22:51:41] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:53:002026-01-07 22:53:00] ] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+
+[2026-01-07 22:53:00] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:53:022026-01-07 22:53:02] ] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+
+[2026-01-07 22:53:02] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:53:042026-01-07 22:53:04] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)] 
+SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:53:04] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:53:06] 2026-01-07 22:53:06] SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:53:06] 프록시 수집 실패: SNMP 수집 실패: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[[2026-01-07 22:59:55] 2026-01-07 22:59:55SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)] 
+SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 22:59:58] 프록시 수집 타임아웃
+[2026-01-07 23:00:03] 프록시 수집 타임아웃
+[[2026-01-07 23:00:05] SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+2026-01-07 23:00:05] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 23:00:08] 프록시 수집 타임아웃
+[2026-01-07 23:00:13] 프록시 수집 타임아웃
+[2026-01-07 23:01:13] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 23:01:13] SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 23:01:16] 프록시 수집 타임아웃
+[2026-01-07 23:01:21] 프록시 수집 타임아웃
+[2026-01-07 23:01:24] SNMP CPU collection failed for 192.168.1.10: SNMP request failed for 192.168.1.10:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 23:01:24] SNMP CPU collection failed for 192.168.1.11: SNMP request failed for 192.168.1.11:1.3.6.1.4.1.2021.11.11.0: Resource temporarily unavailable (os error 35)
+[2026-01-07 23:01:27] 프록시 수집 타임아웃
