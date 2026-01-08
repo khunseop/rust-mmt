@@ -36,6 +36,20 @@ pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
     // 런타임 생성
     let rt = tokio::runtime::Runtime::new()?;
     let app_mutex = Arc::new(Mutex::new(app));
+    
+    // 스피너 애니메이션을 위한 주기적 업데이트 태스크
+    let app_for_spinner = app_mutex.clone();
+    rt.spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(100)); // 100ms마다 업데이트
+        loop {
+            interval.tick().await;
+            let mut app_guard = app_for_spinner.lock().await;
+            if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Collecting
+                || app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Starting {
+                app_guard.resource_usage.spinner_frame = (app_guard.resource_usage.spinner_frame + 1) % 10;
+            }
+        }
+    });
 
     // 앱 실행
     let app_result = run_app(&mut terminal, app_mutex, tick_rate, rt);
@@ -75,6 +89,14 @@ fn run_app<B: Backend>(
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
+                // Ctrl+C 처리
+                if key.code == KeyCode::Char('c') && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                    let mut app_guard = rt.block_on(app.lock());
+                    app_guard.should_quit = true;
+                    drop(app_guard);
+                    return Ok(());
+                }
+                
                 if key.kind == KeyEventKind::Press {
                     let mut app_guard = rt.block_on(app.lock());
                     match key.code {
@@ -96,11 +118,32 @@ fn run_app<B: Backend>(
                         KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
                         KeyCode::Tab => app_guard.on_right(),
                         KeyCode::BackTab => app_guard.on_left(),
-                        KeyCode::Char('c') | KeyCode::Char('C') => {
+                        KeyCode::Char(' ') | KeyCode::Enter => {
+                            // Space 또는 Enter로 자동 수집 토글
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
-                                && !app_guard.is_collecting
+                                && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
                             {
-                                // 수집 시작
+                                app_guard.resource_usage.toggle_auto_collection();
+                                
+                                // 자동 수집을 시작하면 즉시 첫 수집 실행
+                                if app_guard.resource_usage.auto_collection_enabled && collection_task.is_none() {
+                                    let app_clone = app.clone();
+                                    collection_task = Some(rt.spawn(async move {
+                                        let mut app = app_clone.lock().await;
+                                        if let Err(e) = app.start_collection().await {
+                                            eprintln!("수집 실패: {}", e);
+                                        }
+                                    }));
+                                }
+                            }
+                        }
+                        KeyCode::Char('c') | KeyCode::Char('C') => {
+                            // C 키로 즉시 수집 (자동 수집과 무관하게)
+                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
+                                && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
+                                && collection_task.is_none()
+                            {
+                                // 즉시 수집 시작
                                 let app_clone = app.clone();
                                 collection_task = Some(rt.spawn(async move {
                                     let mut app = app_clone.lock().await;
@@ -109,6 +152,9 @@ fn run_app<B: Backend>(
                                     }
                                 }));
                             }
+                        }
+                        KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            app_guard.should_quit = true;
                         }
                         KeyCode::Char(c) => app_guard.on_key(c),
                         KeyCode::Esc => app_guard.should_quit = true,
@@ -126,13 +172,14 @@ fn run_app<B: Backend>(
         }
 
         // 수집 작업 완료 확인
-        if let Some(task) = &mut collection_task {
+        if let Some(ref task) = collection_task {
             if task.is_finished() {
+                // 작업 완료 처리
                 collection_task = None;
-                // 수집 완료 후 3초 후에 상태를 Idle로 변경
+                // 수집 완료 후 2초 후에 상태를 Idle로 변경
                 let app_clone = app.clone();
                 rt.spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                     let mut app_guard = app_clone.lock().await;
                     if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Success
                         || app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Failed {
@@ -140,6 +187,22 @@ fn run_app<B: Backend>(
                         app_guard.resource_usage.collection_progress = None;
                     }
                 });
+            }
+        }
+
+        // 자동 수집 확인 및 실행
+        {
+            let app_guard = rt.block_on(app.lock());
+            if app_guard.resource_usage.should_trigger_auto_collection() && collection_task.is_none() {
+                drop(app_guard);
+                // 자동 수집 실행
+                let app_clone = app.clone();
+                collection_task = Some(rt.spawn(async move {
+                    let mut app = app_clone.lock().await;
+                    if let Err(e) = app.start_collection().await {
+                        eprintln!("자동 수집 실패: {}", e);
+                    }
+                }));
             }
         }
 

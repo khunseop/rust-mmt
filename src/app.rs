@@ -59,14 +59,31 @@ fn default_snmp_community() -> String {
     "public".to_string()
 }
 
+/// 인터페이스 트래픽 정보
+#[derive(Debug, Clone)]
+pub struct InterfaceTraffic {
+    pub name: String,
+    pub in_mbps: f64,
+    pub out_mbps: f64,
+}
+
 /// 자원 사용률 데이터
 #[derive(Debug, Clone)]
 pub struct ResourceData {
     pub proxy_id: u32,
     pub host: String,
+    pub proxy_name: Option<String>, // 프록시 이름 (설정에서 가져올 수 있으면)
     pub cpu: Option<f64>,
     pub mem: Option<f64>,
+    pub cc: Option<f64>,
+    pub cs: Option<f64>,
+    pub http: Option<f64>,
+    pub https: Option<f64>,
+    pub ftp: Option<f64>,
+    pub interfaces: Vec<InterfaceTraffic>, // 회선 정보
     pub collected_at: chrono::DateTime<chrono::Local>,
+    pub collection_failed: bool, // 수집 실패 여부
+    pub error_message: Option<String>, // 실패 시 에러 메시지
 }
 
 // Clone 구현을 위해 Proxy도 Clone 가능해야 함
@@ -107,6 +124,9 @@ pub struct ResourceUsageState {
     pub collection_status: CollectionStatus, // 수집 상태
     pub collection_progress: Option<(usize, usize)>, // (완료된 수, 전체 수)
     pub spinner_frame: usize, // 스피너 애니메이션 프레임
+    pub selected_control: Option<usize>, // 선택된 컨트롤 (None: 테이블, Some(0): 시작/중지, Some(1): 수집주기)
+    pub auto_collection_enabled: bool, // 자동 수집 활성화 여부
+    pub next_auto_collection_time: Option<chrono::DateTime<chrono::Local>>, // 다음 자동 수집 예정 시간
 }
 
 impl ResourceUsageState {
@@ -123,6 +143,72 @@ impl ResourceUsageState {
             collection_status: CollectionStatus::Idle,
             collection_progress: None,
             spinner_frame: 0,
+            selected_control: None, // 기본값: 테이블 모드
+            auto_collection_enabled: false,
+            next_auto_collection_time: None,
+        }
+    }
+
+    pub fn next_control(&mut self) {
+        self.selected_control = match self.selected_control {
+            None => Some(0),
+            Some(0) => Some(1),
+            Some(1) => None, // 테이블로 돌아감
+            _ => Some(0),
+        };
+    }
+
+    pub fn previous_control(&mut self) {
+        self.selected_control = match self.selected_control {
+            None => Some(1), // 테이블에서 수집 주기로
+            Some(0) => None, // 시작/중지에서 테이블로
+            Some(1) => Some(0),
+            _ => None,
+        };
+    }
+
+    pub fn toggle_auto_collection(&mut self) {
+        self.auto_collection_enabled = !self.auto_collection_enabled;
+        if self.auto_collection_enabled {
+            // 자동 수집 시작 시 다음 수집 시간 설정
+            self.next_auto_collection_time = Some(chrono::Local::now() + chrono::Duration::seconds(self.collection_interval_sec as i64));
+        } else {
+            // 자동 수집 중지
+            self.next_auto_collection_time = None;
+        }
+    }
+
+    pub fn activate_control(&mut self) {
+        match self.selected_control {
+            Some(0) => {
+                // 시작/중지 버튼 - 자동 수집 토글
+                self.toggle_auto_collection();
+            }
+            Some(1) => {
+                // 수집 주기 조작 (현재는 +/- 키로만 가능)
+            }
+            _ => {}
+        }
+    }
+    
+    /// 자동 수집이 활성화되어 있고 다음 수집 시간이 되었는지 확인
+    pub fn should_trigger_auto_collection(&self) -> bool {
+        if !self.auto_collection_enabled {
+            return false;
+        }
+        
+        if let Some(next_time) = self.next_auto_collection_time {
+            chrono::Local::now() >= next_time
+                && self.collection_status == CollectionStatus::Idle
+        } else {
+            false
+        }
+    }
+    
+    /// 다음 자동 수집 시간 업데이트
+    pub fn update_next_auto_collection_time(&mut self) {
+        if self.auto_collection_enabled {
+            self.next_auto_collection_time = Some(chrono::Local::now() + chrono::Duration::seconds(self.collection_interval_sec as i64));
         }
     }
 
@@ -136,6 +222,10 @@ impl ResourceUsageState {
             120..=299 => 300,
             _ => 600, // 600초 이상이면 600초로
         };
+        // 자동 수집이 활성화되어 있으면 다음 수집 시간 업데이트
+        if self.auto_collection_enabled {
+            self.update_next_auto_collection_time();
+        }
     }
 
     pub fn decrease_interval(&mut self) {
@@ -148,6 +238,10 @@ impl ResourceUsageState {
             121..=300 => 120,
             _ => 300,
         };
+        // 자동 수집이 활성화되어 있으면 다음 수집 시간 업데이트
+        if self.auto_collection_enabled {
+            self.update_next_auto_collection_time();
+        }
     }
 
     pub fn get_interval_display(&self) -> String {
@@ -347,11 +441,11 @@ impl App {
     }
 
     pub fn on_tick(&mut self) {
-        // 스피너 애니메이션 업데이트
-        if self.resource_usage.collection_status == CollectionStatus::Collecting
-            || self.resource_usage.collection_status == CollectionStatus::Starting {
-            self.resource_usage.spinner_frame = (self.resource_usage.spinner_frame + 1) % 4;
-        }
+        // 스피너 애니메이션은 백그라운드 태스크에서 처리
+        // 여기서는 다른 주기적 작업만 수행
+        
+        // 자동 수집이 활성화되어 있고 다음 수집 시간이 되었는지 확인
+        // 실제 수집은 crossterm.rs의 이벤트 루프에서 처리
     }
 
     pub fn on_left(&mut self) {
@@ -365,7 +459,18 @@ impl App {
     pub fn on_up(&mut self) {
         match self.current_tab {
             TabIndex::ProxyManagement => {}
-            TabIndex::ResourceUsage => self.resource_usage.previous(),
+            TabIndex::ResourceUsage => {
+                match self.resource_usage.selected_control {
+                    None => {
+                        // 테이블 모드: 테이블 행 이동
+                        self.resource_usage.previous();
+                    }
+                    Some(_) => {
+                        // 컨트롤 모드: 컨트롤 전환
+                        self.resource_usage.previous_control();
+                    }
+                }
+            }
             TabIndex::SessionBrowser => self.session_browser.previous(),
             TabIndex::TrafficLogs => {}
         }
@@ -374,7 +479,24 @@ impl App {
     pub fn on_down(&mut self) {
         match self.current_tab {
             TabIndex::ProxyManagement => {}
-            TabIndex::ResourceUsage => self.resource_usage.next(),
+            TabIndex::ResourceUsage => {
+                match self.resource_usage.selected_control {
+                    None => {
+                        // 테이블 모드: 첫 번째 컨트롤(시작/중지)로 이동
+                        self.resource_usage.selected_control = Some(0);
+                    }
+                    Some(0) => {
+                        // 시작/중지에서 아래로: 수집 주기로
+                        self.resource_usage.selected_control = Some(1);
+                    }
+                    Some(1) => {
+                        // 수집 주기에서 아래로: 테이블로 이동
+                        self.resource_usage.selected_control = None;
+                        self.resource_usage.next();
+                    }
+                    _ => {}
+                }
+            }
             TabIndex::SessionBrowser => self.session_browser.next(),
             TabIndex::TrafficLogs => {}
         }
@@ -466,6 +588,11 @@ impl App {
         self.resource_usage.last_error = None;
         self.resource_usage.collection_status = CollectionStatus::Starting;
         self.resource_usage.collection_progress = Some((0, proxies_to_collect.len()));
+        
+        // 자동 수집이 활성화되어 있으면 다음 수집 시간 업데이트
+        if self.resource_usage.auto_collection_enabled {
+            self.resource_usage.update_next_auto_collection_time();
+        }
 
         // 수집 실행
         let collector = crate::collector::ResourceCollector::new(oids, community);
@@ -474,15 +601,43 @@ impl App {
         match collector.collect_multiple(&proxies_to_collect).await {
             Ok(results) => {
                 // 결과 저장
-                let results_count = results.len();
+                let success_count = results.iter().filter(|r| !r.collection_failed).count();
+                let failed_count = results.iter().filter(|r| r.collection_failed).count();
+                let total_count = proxies_to_collect.len();
+                
                 self.resource_usage.data = results;
                 self.resource_usage.last_collection_time = Some(chrono::Local::now());
-                self.resource_usage.collection_status = CollectionStatus::Success;
-                self.resource_usage.collection_progress = Some((results_count, proxies_to_collect.len()));
+                
+                // 부분 성공도 성공으로 처리
+                if success_count > 0 {
+                    self.resource_usage.collection_status = CollectionStatus::Success;
+                    self.resource_usage.collection_progress = Some((success_count, total_count));
+                    
+                    // 일부만 성공했으면 경고 메시지
+                    if failed_count > 0 {
+                        self.resource_usage.last_error = Some(format!(
+                            "일부 프록시 수집 실패 ({}개 성공, {}개 실패)",
+                            success_count,
+                            failed_count
+                        ));
+                    }
+                } else {
+                    // 하나도 성공하지 못함
+                    self.resource_usage.collection_status = CollectionStatus::Failed;
+                    self.resource_usage.last_error = Some("모든 프록시 수집 실패".to_string());
+                    self.resource_usage.collection_progress = None;
+                }
 
-                // CSV 저장
-                if let Err(e) = crate::csv_writer::CsvWriter::save_resource_usage(&self.resource_usage.data) {
-                    self.resource_usage.last_error = Some(format!("CSV 저장 실패: {}", e));
+                // CSV 저장 (실패한 것도 포함)
+                if !self.resource_usage.data.is_empty() {
+                    if let Err(e) = crate::csv_writer::CsvWriter::save_resource_usage(&self.resource_usage.data) {
+                        let existing_error = self.resource_usage.last_error.clone();
+                        self.resource_usage.last_error = Some(format!(
+                            "{}{}",
+                            existing_error.map(|e| format!("{} / ", e)).unwrap_or_default(),
+                            format!("CSV 저장 실패: {}", e)
+                        ));
+                    }
                 }
             }
             Err(e) => {

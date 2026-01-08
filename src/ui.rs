@@ -106,168 +106,215 @@ fn draw_proxy_management(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // 헤더
-            Constraint::Length(5),  // 설정 및 정보
-            Constraint::Min(0),     // 데이터 테이블
+            Constraint::Length(3),  // 컨트롤 영역
+            Constraint::Min(3),     // 데이터 테이블
         ])
         .split(area);
 
-    // 헤더 영역
-    let header = Block::default()
-        .borders(Borders::ALL)
-        .title("자원 사용률 모니터링");
-    frame.render_widget(header, chunks[0]);
-
-    // 설정 및 정보 영역
-    let info_chunks = Layout::default()
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[1]);
-
-    // 그룹 선택
-    let group_text = if app.proxies.is_empty() {
-        "프록시가 설정되지 않았습니다.".to_string()
-    } else {
-        format!("그룹: [{}]\n(Shift+←/→: 변경)", app.resource_usage.get_group_display_name())
-    };
-    
-    let group_block = Block::default()
-        .borders(Borders::ALL)
-        .title("필터");
+    // 컨트롤 영역
+    let control_chunks = Layout::default()
+        .direction(ratatui::layout::Direction::Horizontal)
+        .constraints([
+            Constraint::Length(20), // 그룹
+            Constraint::Length(25), // 자동수집 버튼
+            Constraint::Length(20), // 수집 주기
+            Constraint::Length(20), // 상태
+            Constraint::Min(0),     // 나머지
+        ])
+        .split(chunks[0]);
     
     use ratatui::widgets::Paragraph;
+    
+    // 그룹 선택
+    let group_name = app.resource_usage.get_group_display_name();
+    let group_text = format!("그룹: {}\nShift+←/→", group_name);
     frame.render_widget(
         Paragraph::new(group_text)
-            .block(group_block)
+            .block(Block::default().borders(Borders::ALL).title("필터"))
             .style(Style::default().fg(Color::Cyan)),
-        info_chunks[0],
-    );
-
-    // 수집 주기 및 마지막 수집 시간
-    let last_collection_str = match app.resource_usage.last_collection_time {
-        Some(time) => format!("{}", time.format("%Y-%m-%d %H:%M:%S")),
-        None => "수집 이력 없음".to_string(),
-    };
-    
-    // 스피너 문자 (회전 애니메이션)
-    let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spinner = spinner_chars[app.resource_usage.spinner_frame % spinner_chars.len()];
-    
-    // 수집 상태 메시지
-    let (status_text, status_style) = match app.resource_usage.collection_status {
-        crate::app::CollectionStatus::Idle => {
-            ("대기 중".to_string(), Style::default().fg(Color::Gray))
-        }
-        crate::app::CollectionStatus::Starting => {
-            (format!("{} 수집 시작 중...", spinner), Style::default().fg(Color::Yellow))
-        }
-        crate::app::CollectionStatus::Collecting => {
-            let progress_text = if let Some((completed, total)) = app.resource_usage.collection_progress {
-                format!("{} 수집 중... ({}/{})", spinner, completed, total)
-            } else {
-                format!("{} 수집 중...", spinner)
-            };
-            (progress_text, Style::default().fg(Color::Yellow))
-        }
-        crate::app::CollectionStatus::Success => {
-            let success_text = if let Some((completed, _total)) = app.resource_usage.collection_progress {
-                format!("✅ 수집 완료! ({}개 성공)", completed)
-            } else {
-                "✅ 수집 완료!".to_string()
-            };
-            (success_text, Style::default().fg(Color::Green))
-        }
-        crate::app::CollectionStatus::Failed => {
-            let error_text = if let Some(ref error) = app.resource_usage.last_error {
-                format!("❌ 수집 실패: {}", error)
-            } else {
-                "❌ 수집 실패".to_string()
-            };
-            (error_text, Style::default().fg(Color::Red))
-        }
-    };
-    
-    let interval_text = format!(
-        "수집 주기: [{}]\n마지막 수집: {}\n상태: {}\n(+/-: 주기 변경, C: 수집)",
-        app.resource_usage.get_interval_display(),
-        last_collection_str,
-        status_text
+        control_chunks[0],
     );
     
-    let interval_block = Block::default()
-        .borders(Borders::ALL)
-        .title("설정");
+    // 자동수집 버튼
+    let auto_status = if app.resource_usage.auto_collection_enabled {
+        if let Some(next_time) = app.resource_usage.next_auto_collection_time {
+            let remaining = (next_time - chrono::Local::now()).num_seconds();
+            if remaining > 0 {
+                format!("🔄 ON ({}초 후)\nSpace: 중지", remaining)
+            } else {
+                "🔄 ON\nSpace: 중지".to_string()
+            }
+        } else {
+            "🔄 ON\nSpace: 중지".to_string()
+        }
+    } else {
+        "▶ OFF\nSpace: 시작".to_string()
+    };
     
-    let interval_style = status_style;
+    let auto_style = if app.resource_usage.auto_collection_enabled {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
     
     frame.render_widget(
+        Paragraph::new(auto_status)
+            .block(Block::default().borders(Borders::ALL).title("자동수집"))
+            .style(auto_style),
+        control_chunks[1],
+    );
+    
+    // 수집 주기
+    let interval = app.resource_usage.get_interval_display();
+    let interval_text = format!("주기: {}\n+/-: 변경", interval);
+    frame.render_widget(
         Paragraph::new(interval_text)
-            .block(interval_block)
-            .style(interval_style),
-        info_chunks[1],
+            .block(Block::default().borders(Borders::ALL).title("수집주기"))
+            .style(Style::default().fg(Color::White)),
+        control_chunks[2],
+    );
+    
+    // 상태
+    let (status_text, status_color) = match app.resource_usage.collection_status {
+        crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray),
+        crate::app::CollectionStatus::Starting => ("시작중".to_string(), Color::Yellow),
+        crate::app::CollectionStatus::Collecting => {
+            if let Some((completed, total)) = app.resource_usage.collection_progress {
+                (format!("수집중 ({}/{})", completed, total), Color::Yellow)
+            } else {
+                ("수집중".to_string(), Color::Yellow)
+            }
+        }
+        crate::app::CollectionStatus::Success => ("완료".to_string(), Color::Green),
+        crate::app::CollectionStatus::Failed => ("실패".to_string(), Color::Red),
+    };
+    
+    let status_display = format!("{}\nC: 즉시수집", status_text);
+    frame.render_widget(
+        Paragraph::new(status_display)
+            .block(Block::default().borders(Borders::ALL).title("상태"))
+            .style(Style::default().fg(status_color)),
+        control_chunks[3],
     );
 
-    // 테이블 영역
+    // 테이블 영역 - Python 앱과 동일한 구조
     let table = if app.resource_usage.data.is_empty() {
         // 데이터가 없을 때 빈 테이블
         Table::new(
             vec![Row::new(vec![
-                Cell::from("데이터가 없습니다. [C] 키를 눌러 수집하세요."),
+                Cell::from("데이터가 없습니다. 시작 버튼을 눌러 수집하세요."),
             ])],
             [Constraint::Percentage(100)],
         )
         .block(Block::default().borders(Borders::ALL))
     } else {
-        // 데이터가 있을 때 실제 테이블
+        // 데이터가 있을 때 실제 테이블 - 프록시별 행
         let rows: Vec<Row> = app
             .resource_usage
             .data
             .iter()
             .enumerate()
             .map(|(i, data)| {
-                let cpu_str = data
-                    .cpu
-                    .map(|v| format!("{:.1}%", v))
-                    .unwrap_or_else(|| "N/A".to_string());
-                let mem_str = data
-                    .mem
-                    .map(|v| format!("{:.1}%", v))
-                    .unwrap_or_else(|| "N/A".to_string());
-                let time_str = data.collected_at.format("%H:%M:%S").to_string();
+                // 실패한 경우
+                if data.collection_failed {
+                    let error_msg = data.error_message.as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or("실패");
+                    
+                    let style = if app.resource_usage.table_state.selected() == Some(i) {
+                        Style::default().bg(Color::Red).fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::Red)
+                    };
 
-                let style = if app.resource_usage.table_state.selected() == Some(i) {
-                    Style::default().bg(Color::Blue)
+                    Row::new(vec![
+                        Cell::from(data.host.clone()).style(style),
+                        Cell::from("실패").style(style),
+                        Cell::from("실패").style(style),
+                        Cell::from("실패").style(style),
+                        Cell::from("실패").style(style),
+                        Cell::from("실패").style(style),
+                        Cell::from("실패").style(style),
+                        Cell::from("실패").style(style),
+                        Cell::from(error_msg).style(style),
+                    ])
                 } else {
-                    Style::default()
-                };
+                    // 성공한 경우
+                    let format_value = |v: Option<f64>| -> String {
+                        v.map(|val| format!("{:.1}", val))
+                            .unwrap_or_else(|| "N/A".to_string())
+                    };
 
-                Row::new(vec![
-                    Cell::from(data.host.clone()).style(style),
-                    Cell::from(cpu_str).style(style),
-                    Cell::from(mem_str).style(style),
-                    Cell::from(time_str).style(style),
-                ])
+                    let cpu_str = format_value(data.cpu);
+                    let mem_str = format_value(data.mem);
+                    let cc_str = format_value(data.cc);
+                    let cs_str = format_value(data.cs);
+                    let http_str = format_value(data.http);
+                    let https_str = format_value(data.https);
+                    let ftp_str = format_value(data.ftp);
+                    
+                    // 회선 정보 (인터페이스)
+                    let interface_str = if data.interfaces.is_empty() {
+                        "N/A".to_string()
+                    } else {
+                        data.interfaces.iter()
+                            .map(|iface| format!("{}: {:.2}/{:.2}", iface.name, iface.in_mbps, iface.out_mbps))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+
+                    let style = if app.resource_usage.table_state.selected() == Some(i) {
+                        Style::default().bg(Color::Blue)
+                    } else {
+                        Style::default()
+                    };
+
+                    Row::new(vec![
+                        Cell::from(data.host.clone()).style(style),
+                        Cell::from(cpu_str).style(style),
+                        Cell::from(mem_str).style(style),
+                        Cell::from(cc_str).style(style),
+                        Cell::from(cs_str).style(style),
+                        Cell::from(http_str).style(style),
+                        Cell::from(https_str).style(style),
+                        Cell::from(ftp_str).style(style),
+                        Cell::from(interface_str).style(style),
+                    ])
+                }
             })
             .collect();
 
+        // 컬럼 너비 설정 (프록시, CPU, MEM, CC, CS, HTTP, HTTPS, FTP, 회선)
         Table::new(rows, [
-            Constraint::Percentage(30),
-            Constraint::Percentage(20),
-            Constraint::Percentage(20),
-            Constraint::Percentage(30),
+            Constraint::Length(15),  // 프록시
+            Constraint::Length(8),   // CPU
+            Constraint::Length(8),   // MEM
+            Constraint::Length(8),   // CC
+            Constraint::Length(8),   // CS
+            Constraint::Length(10),  // HTTP
+            Constraint::Length(10),  // HTTPS
+            Constraint::Length(10),  // FTP
+            Constraint::Min(0),      // 회선 정보 (나머지 공간)
         ])
         .header(Row::new(vec![
-            Cell::from("호스트").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("프록시").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("CPU").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("MEM").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("시간").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("CC").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("CS").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("HTTP").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("HTTPS").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("FTP").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("회선정보").style(Style::default().add_modifier(Modifier::BOLD)),
         ]))
-        .block(Block::default().borders(Borders::ALL).title("자원 사용률 데이터"))
+        .block(Block::default().borders(Borders::ALL).title("자원 사용률 모니터링"))
         .highlight_style(Style::default().bg(Color::Blue))
         .highlight_symbol(">> ")
     };
 
-    frame.render_stateful_widget(table, chunks[2], &mut app.resource_usage.table_state);
+    frame.render_stateful_widget(table, chunks[1], &mut app.resource_usage.table_state);
 }
 
 fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
