@@ -196,9 +196,19 @@ impl SnmpClient {
         let (_pdu_length, pdu_length_bytes) = decode_length(&response[pos..])?;
         pos += pdu_length_bytes;
         
+        // PDU 내용은 SEQUENCE로 시작합니다
+        if pos >= response.len() || response[pos] != 0x30 {
+            anyhow::bail!("Invalid SNMP response: expected SEQUENCE in PDU (found: 0x{:02x})", 
+                if pos < response.len() { response[pos] } else { 0 });
+        }
+        pos += 1;
+        let (_pdu_seq_length, pdu_seq_length_bytes) = decode_length(&response[pos..])?;
+        pos += pdu_seq_length_bytes;
+        
         // request-id 확인 및 검증
         if pos >= response.len() || response[pos] != 0x02 {
-            anyhow::bail!("Invalid SNMP response: expected INTEGER for request-id");
+            anyhow::bail!("Invalid SNMP response: expected INTEGER for request-id (found: 0x{:02x} at pos {})", 
+                if pos < response.len() { response[pos] } else { 0 }, pos);
         }
         pos += 1;
         let (req_id_length, req_id_length_bytes) = decode_length(&response[pos..])?;
