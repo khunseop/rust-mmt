@@ -154,10 +154,50 @@ impl SnmpClient {
         let (_pdu_length, pdu_length_bytes) = decode_length(&response[pos..])?;
         pos += pdu_length_bytes;
         
-        // request-id, error-status, error-index 건너뛰기
+        // request-id 건너뛰기
         pos = skip_ber_value(response, pos)?; // request-id
-        pos = skip_ber_value(response, pos)?; // error-status
-        pos = skip_ber_value(response, pos)?; // error-index
+        
+        // error-status 확인 (중요!)
+        if pos >= response.len() || response[pos] != 0x02 {
+            anyhow::bail!("Invalid SNMP response: expected INTEGER for error-status");
+        }
+        pos += 1;
+        let (error_status_length, error_status_length_bytes) = decode_length(&response[pos..])?;
+        pos += error_status_length_bytes;
+        if pos + error_status_length > response.len() {
+            anyhow::bail!("Invalid SNMP response: error-status length exceeds buffer");
+        }
+        let error_status_bytes = &response[pos..pos + error_status_length];
+        let error_status = decode_integer(error_status_bytes)?;
+        pos += error_status_length;
+        
+        // error-index 확인
+        if pos >= response.len() || response[pos] != 0x02 {
+            anyhow::bail!("Invalid SNMP response: expected INTEGER for error-index");
+        }
+        pos += 1;
+        let (error_index_length, error_index_length_bytes) = decode_length(&response[pos..])?;
+        pos += error_index_length_bytes;
+        if pos + error_index_length > response.len() {
+            anyhow::bail!("Invalid SNMP response: error-index length exceeds buffer");
+        }
+        let error_index_bytes = &response[pos..pos + error_index_length];
+        let error_index = decode_integer(error_index_bytes)?;
+        pos += error_index_length;
+        
+        // SNMP 에러 상태 확인
+        if error_status != 0 {
+            let error_msg = match error_status {
+                1 => "tooBig - 응답이 너무 큼",
+                2 => "noSuchName - 요청한 OID가 존재하지 않음",
+                3 => "badValue - 잘못된 값",
+                4 => "readOnly - 읽기 전용 OID",
+                5 => "genErr - 일반 오류",
+                _ => "알 수 없는 SNMP 오류",
+            };
+            anyhow::bail!("SNMP error: {} (error-status: {}, error-index: {})", 
+                error_msg, error_status, error_index);
+        }
         
         // VarBindList
         if pos >= response.len() || response[pos] != 0x30 {
