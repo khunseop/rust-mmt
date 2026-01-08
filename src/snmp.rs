@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::net::UdpSocket;
+use std::net::{UdpSocket, ToSocketAddrs};
 use std::time::Duration;
 
 /// SNMP 클라이언트
@@ -26,7 +26,9 @@ impl SnmpClient {
     /// SNMP GET 요청을 보내고 값을 반환합니다.
     /// OID는 점으로 구분된 문자열 형식 (예: "1.3.6.1.4.1.2021.11.11.0")
     pub fn get(&self, host: &str, oid: &str) -> Result<f64> {
+        // IPv4 주소로 명시적으로 바인딩 (IPv6 문제 방지)
         let socket = UdpSocket::bind("0.0.0.0:0")
+            .or_else(|_| UdpSocket::bind("127.0.0.1:0"))
             .context("Failed to bind UDP socket")?;
         
         // 타임아웃 설정
@@ -41,12 +43,28 @@ impl SnmpClient {
 
         // SNMPv2c GET 요청 생성
         let request = self.build_get_request(oid)?;
-        let server_addr = format!("{}:161", host);
+        
+        // 서버 주소 파싱 (IPv4/IPv6 지원)
+        let server_addr_str = format!("{}:161", host);
+        let server_addr: std::net::SocketAddr = server_addr_str.parse()
+            .or_else(|_| {
+                // 호스트명이면 DNS 조회 시도
+                (host, 161u16).to_socket_addrs()
+                    .and_then(|mut addrs| addrs.next().ok_or(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Could not resolve host"
+                    )))
+            })
+            .context(format!("Failed to parse server address: {}", host))?;
         
         // 요청 전송
-        socket
+        let sent_bytes = socket
             .send_to(&request, &server_addr)
-            .context("Failed to send SNMP request")?;
+            .context(format!("Failed to send SNMP request to {}:{}", host, server_addr.port()))?;
+        
+        if sent_bytes != request.len() {
+            anyhow::bail!("Partial send: sent {}/{} bytes", sent_bytes, request.len());
+        }
 
         // 응답 수신 (타임아웃 적용됨)
         let mut buffer = [0u8; 1024];
@@ -55,7 +73,7 @@ impl SnmpClient {
             Err(e) => {
                 // 타임아웃 또는 네트워크 오류
                 if e.kind() == std::io::ErrorKind::TimedOut {
-                    anyhow::bail!("SNMP request timeout for {}:{}", host, oid);
+                    anyhow::bail!("SNMP request timeout for {}:{} (timeout: {:?})", host, oid, self.timeout);
                 } else {
                     anyhow::bail!("SNMP request failed for {}:{}: {}", host, oid, e);
                 }
@@ -470,14 +488,16 @@ pub async fn snmp_get_async(
     community: &str,
     oid: &str,
 ) -> Result<f64> {
-    let client = SnmpClient::new(community.to_string());
+    let timeout = Duration::from_secs(5); // 기본 타임아웃 5초 (더 여유있게)
+    let client = SnmpClient::new(community.to_string())
+        .with_timeout(timeout);
     let host = host.to_string();
     let oid = oid.to_string();
-    let timeout = Duration::from_secs(3); // 기본 타임아웃 3초
     
     // 블로킹 작업을 스레드 풀에서 실행하고 타임아웃 적용
+    // 토키오 타임아웃은 UDP 소켓 타임아웃보다 약간 길게 설정
     tokio::time::timeout(
-        timeout,
+        timeout + Duration::from_secs(1), // UDP 타임아웃보다 1초 더
         tokio::task::spawn_blocking(move || client.get(&host, &oid))
     )
     .await
