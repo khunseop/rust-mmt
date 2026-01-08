@@ -528,31 +528,43 @@ pub async fn snmp_get_async(
     community: &str,
     oid: &str,
 ) -> Result<f64> {
-    let timeout = Duration::from_secs(8); // 기본 타임아웃 8초로 증가
+    // SNMP 타임아웃 설정 (UDP 소켓 레벨)
+    let snmp_timeout = Duration::from_secs(10); // 10초로 증가
     let host_str = host.to_string();
     let oid_str = oid.to_string();
     let community_str = community.to_string();
     let community_debug = community.to_string();
     
+    // 타임아웃이 명시적으로 설정된 클라이언트 생성
     let client = SnmpClient::new(community_str)
-        .with_timeout(timeout);
+        .with_timeout(snmp_timeout);
     
     // 타임아웃 메시지를 위한 복사본
     let host_for_error = host_str.clone();
     let oid_for_error = oid_str.clone();
     
+    // 토키오 타임아웃은 SNMP 타임아웃보다 충분히 길게 설정
+    // (SNMP 타임아웃 + 스레드 풀 오버헤드 + 여유 시간)
+    let tokio_timeout = snmp_timeout + Duration::from_secs(3);
+    
     // 블로킹 작업을 스레드 풀에서 실행하고 타임아웃 적용
-    tokio::time::timeout(
-        timeout + Duration::from_secs(2), // UDP 타임아웃보다 2초 더 여유있게
+    match tokio::time::timeout(
+        tokio_timeout,
         tokio::task::spawn_blocking(move || {
             client.get(&host_str, &oid_str)
                 .with_context(|| format!(
-                    "SNMP GET failed: host={}, oid={}, community={}",
-                    host_str, oid_str, community_debug
+                    "SNMP GET failed: host={}, oid={}, community={}, timeout={:?}",
+                    host_str, oid_str, community_debug, snmp_timeout
                 ))
         })
     )
-    .await
-    .context(format!("SNMP request timeout after {:?} (host: {}, oid: {})", timeout, host_for_error, oid_for_error))?
-    .context("SNMP task execution failed")?
+    .await {
+        Ok(Ok(Ok(value))) => Ok(value),
+        Ok(Ok(Err(e))) => Err(e), // SNMP 에러
+        Ok(Err(e)) => Err(anyhow::anyhow!("SNMP task execution failed: {}", e)),
+        Err(_) => Err(anyhow::anyhow!(
+            "SNMP request timeout: no response from {} for OID {} after {:?} (UDP timeout: {:?})",
+            host_for_error, oid_for_error, tokio_timeout, snmp_timeout
+        )),
+    }
 }
