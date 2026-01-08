@@ -105,9 +105,36 @@ fn draw_proxy_management(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(proxy_table, chunks[1]);
 }
 
+/// 실행 파일의 디렉터리를 기준으로 config 파일 경로를 반환합니다.
+fn get_config_path(filename: &str) -> std::path::PathBuf {
+    // 먼저 실행 파일의 디렉터리에서 찾기 시도
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let config_path = exe_dir.join("config").join(filename);
+            if config_path.exists() {
+                return config_path;
+            }
+            // 실행 파일과 같은 디렉터리에 직접 있는 경우도 확인
+            let direct_path = exe_dir.join(filename);
+            if direct_path.exists() {
+                return direct_path;
+            }
+        }
+    }
+    
+    // 실행 파일 위치에서 찾지 못하면 현재 작업 디렉터리에서 찾기
+    let current_dir_path = std::path::Path::new("config").join(filename);
+    if current_dir_path.exists() {
+        return current_dir_path;
+    }
+    
+    // 둘 다 없으면 기본값으로 현재 작업 디렉터리 반환 (에러는 나중에 발생)
+    std::path::Path::new("config").join(filename)
+}
+
 /// 설정 파일에서 회선 목록을 읽어옵니다.
 fn get_interface_names() -> Vec<String> {
-    let config_path = "config/resource_config.json";
+    let config_path = get_config_path("resource_config.json");
     if let Ok(content) = std::fs::read_to_string(config_path) {
         if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(interface_oids) = config.get("interface_oids").and_then(|v| v.as_object()) {

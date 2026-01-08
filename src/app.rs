@@ -1,5 +1,6 @@
 use ratatui::widgets::TableState;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// 탭 인덱스
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -412,6 +413,34 @@ pub struct App {
     pub is_collecting: bool, // 수집 중 플래그
 }
 
+/// 실행 파일의 디렉터리를 기준으로 config 파일 경로를 반환합니다.
+/// 실행 파일과 같은 디렉터리 또는 현재 작업 디렉터리에서 찾습니다.
+fn get_config_path(filename: &str) -> PathBuf {
+    // 먼저 실행 파일의 디렉터리에서 찾기 시도
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let config_path = exe_dir.join("config").join(filename);
+            if config_path.exists() {
+                return config_path;
+            }
+            // 실행 파일과 같은 디렉터리에 직접 있는 경우도 확인
+            let direct_path = exe_dir.join(filename);
+            if direct_path.exists() {
+                return direct_path;
+            }
+        }
+    }
+    
+    // 실행 파일 위치에서 찾지 못하면 현재 작업 디렉터리에서 찾기
+    let current_dir_path = Path::new("config").join(filename);
+    if current_dir_path.exists() {
+        return current_dir_path;
+    }
+    
+    // 둘 다 없으면 기본값으로 현재 작업 디렉터리 반환 (에러는 나중에 발생)
+    Path::new("config").join(filename)
+}
+
 impl App {
     pub fn new(title: String) -> Self {
         Self {
@@ -427,8 +456,9 @@ impl App {
     }
 
     pub fn load_proxies(&mut self) -> anyhow::Result<()> {
-        let config_path = "config/proxies.json";
-        let content = std::fs::read_to_string(config_path)?;
+        let config_path = get_config_path("proxies.json");
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| anyhow::anyhow!("설정 파일을 찾을 수 없습니다: {} (에러: {})", config_path.display(), e))?;
         let config: ProxyConfig = serde_json::from_str(&content)?;
         self.proxies = config.proxies;
         // 그룹 목록 업데이트
@@ -546,8 +576,9 @@ impl App {
         }
 
         // 설정 파일 읽기
-        let config_path = "config/resource_config.json";
-        let content = std::fs::read_to_string(config_path)?;
+        let config_path = get_config_path("resource_config.json");
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| anyhow::anyhow!("설정 파일을 찾을 수 없습니다: {} (에러: {})", config_path.display(), e))?;
         let config: serde_json::Value = serde_json::from_str(&content)?;
         
         let community = config["community"]
