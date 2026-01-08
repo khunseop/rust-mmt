@@ -180,8 +180,8 @@ impl ResourceCollector {
                     collection_failed = true;
                 }
                 Err(_) => {
-                    let err_msg = format!("{} 수집 타임아웃", key);
-                    log_error(&format!("{} for {}", err_msg, proxy.host));
+                    let err_msg = format!("{} 수집 타임아웃 (8초 초과)", key);
+                    log_error(&format!("{} for {} - SNMP 서버 응답 없음 (방화벽, 네트워크, 또는 SNMP 서비스 확인 필요)", err_msg, proxy.host));
                     error_messages.push(err_msg);
                     collection_failed = true;
                 }

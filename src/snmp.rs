@@ -1,20 +1,22 @@
 use anyhow::{Context, Result};
 use std::net::{UdpSocket, ToSocketAddrs};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
+
+// 전역 요청 ID 카운터 (스레드 안전)
+static REQUEST_ID_COUNTER: AtomicU32 = AtomicU32::new(1);
 
 /// SNMP 클라이언트
 pub struct SnmpClient {
     community: String,
     timeout: Duration,
-    request_id: u32,
 }
 
 impl SnmpClient {
     pub fn new(community: String) -> Self {
         Self {
             community,
-            timeout: Duration::from_secs(2),
-            request_id: 1,
+            timeout: Duration::from_secs(5), // 기본값을 5초로 증가
         }
     }
 
@@ -22,11 +24,19 @@ impl SnmpClient {
         self.timeout = timeout;
         self
     }
+    
+    /// 고유한 요청 ID 생성
+    fn next_request_id() -> u32 {
+        REQUEST_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
 
     /// SNMP GET 요청을 보내고 값을 반환합니다.
     /// OID는 점으로 구분된 문자열 형식 (예: "1.3.6.1.4.1.2021.11.11.0")
     pub fn get(&self, host: &str, oid: &str) -> Result<f64> {
-        // IPv4 주소로 명시적으로 바인딩 (IPv6 문제 방지)
+        // 고유한 요청 ID 생성
+        let request_id = Self::next_request_id();
+        
+        // IPv4 주소로 명시적으로 바인딩
         let socket = UdpSocket::bind("0.0.0.0:0")
             .or_else(|_| UdpSocket::bind("127.0.0.1:0"))
             .context("Failed to bind UDP socket")?;
@@ -36,17 +46,21 @@ impl SnmpClient {
             .set_read_timeout(Some(self.timeout))
             .context("Failed to set read timeout")?;
         
-        // 송신 타임아웃도 설정 (선택적)
+        // 송신 타임아웃도 설정
         socket
             .set_write_timeout(Some(self.timeout))
             .context("Failed to set write timeout")?;
 
         // SNMPv2c GET 요청 생성
-        let request = self.build_get_request(oid)?;
+        let request = self.build_get_request(oid, request_id)?;
+        
+        // 패킷 크기 확인 (SNMPv2c는 최대 1472 바이트 권장)
+        if request.len() > 1472 {
+            anyhow::bail!("SNMP request packet too large: {} bytes", request.len());
+        }
         
         // 서버 주소 파싱 (IPv4/IPv6 지원)
-        let server_addr_str = format!("{}:161", host);
-        let server_addr: std::net::SocketAddr = server_addr_str.parse()
+        let server_addr: std::net::SocketAddr = format!("{}:161", host).parse()
             .or_else(|_| {
                 // 호스트명이면 DNS 조회 시도
                 (host, 161u16).to_socket_addrs()
@@ -55,36 +69,46 @@ impl SnmpClient {
                         "Could not resolve host"
                     )))
             })
-            .context(format!("Failed to parse server address: {}", host))?;
+            .context(format!("Failed to resolve server address: {}", host))?;
         
         // 요청 전송
         let sent_bytes = socket
             .send_to(&request, &server_addr)
-            .context(format!("Failed to send SNMP request to {}:{}", host, server_addr.port()))?;
+            .context(format!("Failed to send SNMP request to {} ({} bytes)", host, request.len()))?;
         
         if sent_bytes != request.len() {
-            anyhow::bail!("Partial send: sent {}/{} bytes", sent_bytes, request.len());
+            anyhow::bail!("Partial send: sent {}/{} bytes to {}", sent_bytes, request.len(), host);
         }
 
         // 응답 수신 (타임아웃 적용됨)
-        let mut buffer = [0u8; 1024];
+        let mut buffer = [0u8; 1500]; // 더 큰 버퍼 사용
         let (size, _) = match socket.recv_from(&mut buffer) {
             Ok(result) => result,
             Err(e) => {
                 // 타임아웃 또는 네트워크 오류
                 if e.kind() == std::io::ErrorKind::TimedOut {
-                    anyhow::bail!("SNMP request timeout for {}:{} (timeout: {:?})", host, oid, self.timeout);
+                    anyhow::bail!(
+                        "SNMP timeout: no response from {} for OID {} (timeout: {:?}, request_id: {})",
+                        host, oid, self.timeout, request_id
+                    );
                 } else {
-                    anyhow::bail!("SNMP request failed for {}:{}: {}", host, oid, e);
+                    anyhow::bail!(
+                        "SNMP network error for {}:{}: {} (request_id: {})",
+                        host, oid, e, request_id
+                    );
                 }
             }
         };
 
-        self.parse_get_response(&buffer[..size])
+        if size == 0 {
+            anyhow::bail!("Empty SNMP response from {}", host);
+        }
+
+        self.parse_get_response(&buffer[..size], request_id)
     }
 
     /// SNMP GET 요청 패킷 생성 (BER 인코딩)
-    fn build_get_request(&self, oid: &str) -> Result<Vec<u8>> {
+    fn build_get_request(&self, oid: &str, request_id: u32) -> Result<Vec<u8>> {
         // OID를 숫자 배열로 변환
         let oid_parts: Vec<u32> = oid
             .split('.')
@@ -120,7 +144,7 @@ impl SnmpClient {
 
         // PDU: SEQUENCE { request-id, error-status, error-index, varbind-list }
         let mut pdu = Vec::new();
-        pdu.extend(encode_integer(self.request_id as i32)); // request-id
+        pdu.extend(encode_integer(request_id as i32)); // request-id
         pdu.extend(encode_integer(0)); // error-status
         pdu.extend(encode_integer(0)); // error-index
         pdu.extend(varbind_list); // varbind-list
@@ -147,7 +171,7 @@ impl SnmpClient {
     }
 
     /// SNMP 응답 파싱 (BER 디코딩)
-    fn parse_get_response(&self, response: &[u8]) -> Result<f64> {
+    fn parse_get_response(&self, response: &[u8], expected_request_id: u32) -> Result<f64> {
         let mut pos = 0;
         
         // SEQUENCE 헤더 확인
@@ -172,8 +196,24 @@ impl SnmpClient {
         let (_pdu_length, pdu_length_bytes) = decode_length(&response[pos..])?;
         pos += pdu_length_bytes;
         
-        // request-id 건너뛰기
-        pos = skip_ber_value(response, pos)?; // request-id
+        // request-id 확인 및 검증
+        if pos >= response.len() || response[pos] != 0x02 {
+            anyhow::bail!("Invalid SNMP response: expected INTEGER for request-id");
+        }
+        pos += 1;
+        let (req_id_length, req_id_length_bytes) = decode_length(&response[pos..])?;
+        pos += req_id_length_bytes;
+        if pos + req_id_length > response.len() {
+            anyhow::bail!("Invalid SNMP response: request-id length exceeds buffer");
+        }
+        let req_id_bytes = &response[pos..pos + req_id_length];
+        let received_request_id = decode_integer(req_id_bytes)?;
+        pos += req_id_length;
+        
+        // 요청 ID 일치 확인 (선택적, 디버깅용)
+        if received_request_id != expected_request_id as i32 {
+            // 경고만 하고 계속 진행 (일부 SNMP 구현에서는 다를 수 있음)
+        }
         
         // error-status 확인 (중요!)
         if pos >= response.len() || response[pos] != 0x02 {
@@ -488,19 +528,31 @@ pub async fn snmp_get_async(
     community: &str,
     oid: &str,
 ) -> Result<f64> {
-    let timeout = Duration::from_secs(5); // 기본 타임아웃 5초 (더 여유있게)
-    let client = SnmpClient::new(community.to_string())
+    let timeout = Duration::from_secs(8); // 기본 타임아웃 8초로 증가
+    let host_str = host.to_string();
+    let oid_str = oid.to_string();
+    let community_str = community.to_string();
+    let community_debug = community.to_string();
+    
+    let client = SnmpClient::new(community_str)
         .with_timeout(timeout);
-    let host = host.to_string();
-    let oid = oid.to_string();
+    
+    // 타임아웃 메시지를 위한 복사본
+    let host_for_error = host_str.clone();
+    let oid_for_error = oid_str.clone();
     
     // 블로킹 작업을 스레드 풀에서 실행하고 타임아웃 적용
-    // 토키오 타임아웃은 UDP 소켓 타임아웃보다 약간 길게 설정
     tokio::time::timeout(
-        timeout + Duration::from_secs(1), // UDP 타임아웃보다 1초 더
-        tokio::task::spawn_blocking(move || client.get(&host, &oid))
+        timeout + Duration::from_secs(2), // UDP 타임아웃보다 2초 더 여유있게
+        tokio::task::spawn_blocking(move || {
+            client.get(&host_str, &oid_str)
+                .with_context(|| format!(
+                    "SNMP GET failed: host={}, oid={}, community={}",
+                    host_str, oid_str, community_debug
+                ))
+        })
     )
     .await
-    .context("SNMP request timeout")?
-    .context("SNMP task failed")?
+    .context(format!("SNMP request timeout after {:?} (host: {}, oid: {})", timeout, host_for_error, oid_for_error))?
+    .context("SNMP task execution failed")?
 }
