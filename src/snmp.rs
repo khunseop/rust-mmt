@@ -22,12 +22,16 @@ impl SnmpClient {
 
     /// OID 문자열을 u32 배열로 변환
     fn parse_oid(oid: &str) -> Result<Vec<u32>> {
-        oid.split('.')
-            .map(|s| {
-                s.parse::<u32>()
-                    .with_context(|| format!("Invalid OID part: {}", s))
-            })
-            .collect()
+        let parts: Vec<u32> = oid
+            .split('.')
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        
+        if parts.is_empty() {
+            anyhow::bail!("Invalid OID format: {}", oid);
+        }
+        
+        Ok(parts)
     }
 
     /// SNMP GET 요청을 보내고 값을 반환합니다.
@@ -45,19 +49,39 @@ impl SnmpClient {
             format!("{}:161", host)
         };
 
-        // SNMP 세션 생성
+        // SNMP 세션 생성 - 각 요청마다 새로 생성
         let mut sess = SyncSession::new(
             &agent_addr,
             &self.community,
             Some(self.timeout),
             0, // retries
         )
-        .map_err(|e| anyhow::anyhow!("Failed to create SNMP session for {}: {:?}", host, e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to create SNMP session for {}: {}", host, e))?;
 
         // SNMP GET 요청 수행
         let mut response = sess
             .get(&oid_vec)
             .map_err(|e| anyhow::anyhow!("SNMP GET failed for host: {}, OID: {}: {:?}", host, oid, e))?;
+
+        // 에러 상태 확인
+        if response.error_status != snmp::snmp::ERRSTATUS_NOERROR {
+            let error_msg = match response.error_status {
+                snmp::snmp::ERRSTATUS_TOOBIG => "tooBig",
+                snmp::snmp::ERRSTATUS_NOSUCHNAME => "noSuchName",
+                snmp::snmp::ERRSTATUS_BADVALUE => "badValue",
+                snmp::snmp::ERRSTATUS_READONLY => "readOnly",
+                snmp::snmp::ERRSTATUS_GENERR => "genErr",
+                _ => "unknown",
+            };
+            anyhow::bail!(
+                "SNMP error for host: {}, OID: {}: {} (error-status: {}, error-index: {})",
+                host,
+                oid,
+                error_msg,
+                response.error_status,
+                response.error_index
+            );
+        }
 
         // 응답에서 값 추출
         if let Some((_oid, value)) = response.varbinds.next() {
@@ -103,6 +127,7 @@ pub async fn snmp_get_async(
     
     let tokio_timeout = timeout + Duration::from_secs(2);
     
+    // spawn_blocking을 사용하여 동기 SNMP 요청을 비동기 컨텍스트에서 실행
     match tokio::time::timeout(
         tokio_timeout,
         tokio::task::spawn_blocking(move || {
