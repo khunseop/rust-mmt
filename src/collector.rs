@@ -15,6 +15,12 @@ fn get_interface_cache() -> &'static Mutex<HashMap<(u32, String), (u64, u64, f64
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Counter32 카운터 캐시: (proxy_id, metric_name) -> (counter, timestamp)
+fn get_counter_cache() -> &'static Mutex<HashMap<(u32, String), (u64, f64)>> {
+    static CACHE: OnceLock<Mutex<HashMap<(u32, String), (u64, f64)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// 자원 수집기
 pub struct ResourceCollector {
     oids: HashMap<String, String>, // key -> OID 매핑
@@ -110,7 +116,7 @@ impl ResourceCollector {
             }
         }
 
-        // HTTP 수집
+        // HTTP 수집 (Counter32 누적값)
         if let Some(http_oid) = self.oids.get("http") {
             if !http_oid.trim().is_empty() {
                 let host = proxy.host.clone();
@@ -122,7 +128,7 @@ impl ResourceCollector {
             }
         }
 
-        // HTTPS 수집
+        // HTTPS 수집 (Counter32 누적값)
         if let Some(https_oid) = self.oids.get("https") {
             if !https_oid.trim().is_empty() {
                 let host = proxy.host.clone();
@@ -134,7 +140,7 @@ impl ResourceCollector {
             }
         }
 
-        // FTP 수집
+        // FTP 수집 (Counter32 누적값)
         if let Some(ftp_oid) = self.oids.get("ftp") {
             if !ftp_oid.trim().is_empty() {
                 let host = proxy.host.clone();
@@ -147,6 +153,11 @@ impl ResourceCollector {
         }
 
         // 모든 작업 실행 (각 작업에 개별 타임아웃 적용)
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+
         for (key, handle) in tasks {
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(5),
@@ -161,9 +172,29 @@ impl ResourceCollector {
                         "mem" => mem = Some(value),
                         "cc" => cc = Some(value),
                         "cs" => cs = Some(value),
-                        "http" => http = Some(value),
-                        "https" => https = Some(value),
-                        "ftp" => ftp = Some(value),
+                        "http" | "https" | "ftp" => {
+                            // Counter32 누적값 처리
+                            let counter = value as u64;
+                            let cache_key = (proxy.id, key.clone());
+                            let mut cache = get_counter_cache().lock().unwrap();
+                            
+                            if let Some((prev_counter, prev_time)) = cache.get(&cache_key) {
+                                let time_diff = current_time - prev_time;
+                                if time_diff >= 1.0 && time_diff <= 300.0 {
+                                    // bps 계산 (바이트/초 * 8 = 비트/초)
+                                    let bps = calculate_bps(*prev_counter, counter, time_diff);
+                                    match key.as_str() {
+                                        "http" => http = Some(bps),
+                                        "https" => https = Some(bps),
+                                        "ftp" => ftp = Some(bps),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            
+                            // 캐시 업데이트
+                            cache.insert(cache_key, (counter, current_time));
+                        }
                         _ => {}
                     }
                 }
@@ -240,12 +271,7 @@ impl ResourceCollector {
                 }
             }
 
-            // Mbps 계산 (이전 값과 비교)
-            let current_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64();
-
+            // bps 계산 (이전 값과 비교)
             for (if_name, (in_counter, out_counter)) in interface_counters {
                 let cache_key = (proxy.id, if_name.clone());
                 let mut cache = get_interface_cache().lock().unwrap();
@@ -254,22 +280,22 @@ impl ResourceCollector {
                     let time_diff = current_time - prev_time;
                     if time_diff >= 1.0 && time_diff <= 300.0 {
                         // 1초 이상 5분 이하 차이만 유효
-                        let in_mbps = if let Some(current_in) = in_counter {
-                            calculate_mbps(*prev_in, current_in, time_diff)
+                        let in_bps = if let Some(current_in) = in_counter {
+                            calculate_bps(*prev_in, current_in, time_diff)
                         } else {
                             0.0
                         };
-                        let out_mbps = if let Some(current_out) = out_counter {
-                            calculate_mbps(*prev_out, current_out, time_diff)
+                        let out_bps = if let Some(current_out) = out_counter {
+                            calculate_bps(*prev_out, current_out, time_diff)
                         } else {
                             0.0
                         };
 
-                        if in_mbps > 0.0 || out_mbps > 0.0 {
+                        if in_bps > 0.0 || out_bps > 0.0 {
                             interfaces.push(InterfaceTraffic {
                                 name: if_name.clone(),
-                                in_mbps,
-                                out_mbps,
+                                in_mbps: in_bps, // 필드명은 유지하지만 값은 bps
+                                out_mbps: out_bps,
                             });
                         }
                     }
@@ -420,8 +446,9 @@ impl ResourceCollector {
     }
 }
 
-/// Mbps 계산 함수 (32비트 카운터 오버플로우 처리)
-fn calculate_mbps(prev: u64, current: u64, time_diff_sec: f64) -> f64 {
+/// bps 계산 함수 (32비트 카운터 오버플로우 처리)
+/// 바이트 카운터를 비트/초로 변환
+fn calculate_bps(prev: u64, current: u64, time_diff_sec: f64) -> f64 {
     let diff = if current >= prev {
         current - prev
     } else {
@@ -429,8 +456,8 @@ fn calculate_mbps(prev: u64, current: u64, time_diff_sec: f64) -> f64 {
         (u64::MAX - prev) + current + 1
     };
     
-    // 바이트를 Mbps로 변환: (bytes * 8) / (time_diff * 1_000_000)
-    (diff as f64 * 8.0) / (time_diff_sec * 1_000_000.0)
+    // 바이트를 bps로 변환: (bytes * 8) / time_diff_sec
+    (diff as f64 * 8.0) / time_diff_sec
 }
 
 // 로그 파일 쓰기를 위한 뮤텍스 (동시성 보장)

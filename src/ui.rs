@@ -298,39 +298,55 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                         Style::default().fg(Color::Red)
                     };
 
-                    // 기본 컬럼 + 회선 컬럼들
+                    // 기본 컬럼 + 회선 컬럼들 (컴팩트하게)
                     let mut cells = vec![
                         Cell::from(data.host.clone()).style(style),
-                        Cell::from("실패").style(style),
-                        Cell::from("실패").style(style),
-                        Cell::from("실패").style(style),
-                        Cell::from("실패").style(style),
-                        Cell::from("실패").style(style),
-                        Cell::from("실패").style(style),
-                        Cell::from("실패").style(style),
+                        Cell::from("-").style(style),
+                        Cell::from("-").style(style),
+                        Cell::from("-").style(style),
+                        Cell::from("-").style(style),
+                        Cell::from("-").style(style),
+                        Cell::from("-").style(style),
+                        Cell::from("-").style(style),
                     ];
                     
-                    // 각 회선에 대해 "실패" 셀 추가
+                    // 각 회선에 대해 빈 셀 추가
                     for _ in &interface_names {
-                        cells.push(Cell::from("실패").style(style));
+                        cells.push(Cell::from("-").style(style));
                     }
                     
-                    cells.push(Cell::from(error_msg).style(style));
+                    cells.push(Cell::from("✗").style(style));
                     Row::new(cells)
                 } else {
                     // 성공한 경우
-                    let format_value = |v: Option<f64>| -> String {
-                        v.map(|val| format!("{:.1}", val))
+                    let format_percent = |v: Option<f64>| -> String {
+                        v.map(|val| format!("{:.0}%", val))
                             .unwrap_or_else(|| "N/A".to_string())
                     };
 
-                    let cpu_str = format_value(data.cpu);
-                    let mem_str = format_value(data.mem);
-                    let cc_str = format_value(data.cc);
-                    let cs_str = format_value(data.cs);
-                    let http_str = format_value(data.http);
-                    let https_str = format_value(data.https);
-                    let ftp_str = format_value(data.ftp);
+                    // bps를 컴팩트한 형식으로 표시 (K/M/G 단위)
+                    let format_bps = |v: Option<f64>| -> String {
+                        v.map(|bps| {
+                            if bps >= 1_000_000_000.0 {
+                                format!("{:.1}G", bps / 1_000_000_000.0)
+                            } else if bps >= 1_000_000.0 {
+                                format!("{:.1}M", bps / 1_000_000.0)
+                            } else if bps >= 1_000.0 {
+                                format!("{:.1}K", bps / 1_000.0)
+                            } else {
+                                format!("{:.0}", bps)
+                            }
+                        })
+                        .unwrap_or_else(|| "N/A".to_string())
+                    };
+
+                    let cpu_str = format_percent(data.cpu);
+                    let mem_str = format_percent(data.mem);
+                    let cc_str = format_percent(data.cc);
+                    let cs_str = format_percent(data.cs);
+                    let http_str = format_bps(data.http);
+                    let https_str = format_bps(data.https);
+                    let ftp_str = format_bps(data.ftp);
                     
                     // 회선 정보를 HashMap으로 변환 (빠른 조회를 위해)
                     let interface_map: HashMap<String, (f64, f64)> = data.interfaces
@@ -356,60 +372,84 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                         Cell::from(ftp_str).style(style),
                     ];
                     
-                    // 각 회선에 대해 별도 컬럼 추가
+                    // 각 회선에 대해 별도 컬럼 추가 (bps를 컴팩트하게 표시)
                     for if_name in &interface_names {
-                        if let Some((in_mbps, out_mbps)) = interface_map.get(if_name) {
-                            cells.push(Cell::from(format!("{:.2}/{:.2}", in_mbps, out_mbps)).style(style));
+                        if let Some((in_bps, out_bps)) = interface_map.get(if_name) {
+                            let in_str = if *in_bps >= 1_000_000_000.0 {
+                                format!("{:.1}G", in_bps / 1_000_000_000.0)
+                            } else if *in_bps >= 1_000_000.0 {
+                                format!("{:.1}M", in_bps / 1_000_000.0)
+                            } else if *in_bps >= 1_000.0 {
+                                format!("{:.1}K", in_bps / 1_000.0)
+                            } else {
+                                format!("{:.0}", in_bps)
+                            };
+                            let out_str = if *out_bps >= 1_000_000_000.0 {
+                                format!("{:.1}G", out_bps / 1_000_000_000.0)
+                            } else if *out_bps >= 1_000_000.0 {
+                                format!("{:.1}M", out_bps / 1_000_000.0)
+                            } else if *out_bps >= 1_000.0 {
+                                format!("{:.1}K", out_bps / 1_000.0)
+                            } else {
+                                format!("{:.0}", out_bps)
+                            };
+                            cells.push(Cell::from(format!("{}/{}", in_str, out_str)).style(style));
                         } else {
-                            cells.push(Cell::from("N/A").style(style));
+                            cells.push(Cell::from("-").style(style));
                         }
                     }
                     
                     // 상태 컬럼
-                    cells.push(Cell::from("성공").style(style));
+                    cells.push(Cell::from("✓").style(style));
                     
                     Row::new(cells)
                 }
             })
             .collect();
 
-        // 컬럼 너비 설정
+        // 컬럼 너비 설정 (컴팩트하게)
         let mut constraints = vec![
-            Constraint::Length(15),  // 프록시
-            Constraint::Length(8),   // CPU
-            Constraint::Length(8),   // MEM
-            Constraint::Length(8),   // CC
-            Constraint::Length(8),   // CS
-            Constraint::Length(10),  // HTTP
-            Constraint::Length(10),  // HTTPS
-            Constraint::Length(10),  // FTP
+            Constraint::Length(12),  // 프록시
+            Constraint::Length(5),   // CPU
+            Constraint::Length(5),   // MEM
+            Constraint::Length(5),   // CC
+            Constraint::Length(5),   // CS
+            Constraint::Length(6),   // HTTP (bps)
+            Constraint::Length(6),   // HTTPS (bps)
+            Constraint::Length(6),   // FTP (bps)
         ];
         
-        // 각 회선에 대해 컬럼 추가
+        // 각 회선에 대해 컬럼 추가 (컴팩트하게)
         for _ in &interface_names {
-            constraints.push(Constraint::Length(12)); // 각 회선 컬럼
+            constraints.push(Constraint::Length(9)); // 각 회선 컬럼 (in/out bps)
         }
         
-        constraints.push(Constraint::Min(0)); // 상태 컬럼 (나머지 공간)
+        constraints.push(Constraint::Length(3)); // 상태 컬럼
         
         // 헤더 생성
         let mut header_cells = vec![
             Cell::from("프록시").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("CPU").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("MEM").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("CC").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("CS").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("CPU%").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("MEM%").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("CC%").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("CS%").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("HTTP").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("HTTPS").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("FTP").style(Style::default().add_modifier(Modifier::BOLD)),
         ];
         
-        // 각 회선에 대해 헤더 추가
+        // 각 회선에 대해 헤더 추가 (짧게)
         for if_name in &interface_names {
-            header_cells.push(Cell::from(if_name.clone()).style(Style::default().add_modifier(Modifier::BOLD)));
+            // 인터페이스 이름을 짧게 표시 (예: eth0 -> e0)
+            let short_name = if if_name.len() > 4 {
+                format!("{}", &if_name[..4])
+            } else {
+                if_name.clone()
+            };
+            header_cells.push(Cell::from(short_name).style(Style::default().add_modifier(Modifier::BOLD)));
         }
         
-        header_cells.push(Cell::from("상태").style(Style::default().add_modifier(Modifier::BOLD)));
+        header_cells.push(Cell::from("✓").style(Style::default().add_modifier(Modifier::BOLD)));
         
         Table::new(rows, constraints)
         .header(Row::new(header_cells))

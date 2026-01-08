@@ -54,12 +54,12 @@ pub struct Proxy {
     pub traffic_log_path: Option<String>,
 }
 
-/// 인터페이스 트래픽 정보
+/// 인터페이스 트래픽 정보 (bps 단위)
 #[derive(Debug, Clone)]
 pub struct InterfaceTraffic {
     pub name: String,
-    pub in_mbps: f64,
-    pub out_mbps: f64,
+    pub in_mbps: f64,  // 실제로는 bps 값이지만 필드명은 유지
+    pub out_mbps: f64, // 실제로는 bps 값이지만 필드명은 유지
 }
 
 /// 자원 사용률 데이터
