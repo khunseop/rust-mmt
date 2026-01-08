@@ -119,7 +119,8 @@ pub struct ResourceUsageState {
     pub collection_status: CollectionStatus, // 수집 상태
     pub collection_progress: Option<(usize, usize)>, // (완료된 수, 전체 수)
     pub spinner_frame: usize, // 스피너 애니메이션 프레임
-    pub selected_control: Option<usize>, // 선택된 컨트롤 (None: 테이블, Some(0): 시작/중지, Some(1): 수집주기)
+    pub selected_control: Option<usize>, // 선택된 컨트롤 (None: 테이블, 0-5: 컨트롤 그리드)
+    // 컨트롤 그리드: 0:필터, 1:자동수집, 2:즉시수집 / 3:수집주기, 4:상태, 5:마지막수집
     pub auto_collection_enabled: bool, // 자동 수집 활성화 여부
     pub next_auto_collection_time: Option<chrono::DateTime<chrono::Local>>, // 다음 자동 수집 예정 시간
     pub collection_start_time: Option<chrono::DateTime<chrono::Local>>, // 수집 시작 시간
@@ -146,21 +147,59 @@ impl ResourceUsageState {
         }
     }
 
-    pub fn next_control(&mut self) {
+    /// 컨트롤 그리드에서 오른쪽으로 이동 (0->1->2, 3->4->5)
+    pub fn move_control_right(&mut self) {
         self.selected_control = match self.selected_control {
             None => Some(0),
             Some(0) => Some(1),
-            Some(1) => None, // 테이블로 돌아감
+            Some(1) => Some(2),
+            Some(2) => Some(2), // 오른쪽 끝
+            Some(3) => Some(4),
+            Some(4) => Some(5),
+            Some(5) => Some(5), // 오른쪽 끝
             _ => Some(0),
         };
     }
 
-    pub fn previous_control(&mut self) {
+    /// 컨트롤 그리드에서 왼쪽으로 이동 (2->1->0, 5->4->3)
+    pub fn move_control_left(&mut self) {
         self.selected_control = match self.selected_control {
-            None => Some(1), // 테이블에서 수집 주기로
-            Some(0) => None, // 시작/중지에서 테이블로
+            None => Some(0),
+            Some(0) => Some(0), // 왼쪽 끝
             Some(1) => Some(0),
-            _ => None,
+            Some(2) => Some(1),
+            Some(3) => Some(3), // 왼쪽 끝
+            Some(4) => Some(3),
+            Some(5) => Some(4),
+            _ => Some(0),
+        };
+    }
+
+    /// 컨트롤 그리드에서 아래로 이동 (0->3, 1->4, 2->5)
+    pub fn move_control_down(&mut self) {
+        self.selected_control = match self.selected_control {
+            None => Some(0), // 테이블에서 첫 번째 컨트롤로
+            Some(0) => Some(3),
+            Some(1) => Some(4),
+            Some(2) => Some(5),
+            Some(3) => None, // 아래 끝에서 테이블로
+            Some(4) => None, // 아래 끝에서 테이블로
+            Some(5) => None, // 아래 끝에서 테이블로
+            _ => Some(0),
+        };
+    }
+
+    /// 컨트롤 그리드에서 위로 이동 (3->0, 4->1, 5->2)
+    pub fn move_control_up(&mut self) {
+        self.selected_control = match self.selected_control {
+            None => Some(3), // 테이블에서 아래 줄로
+            Some(0) => None, // 위 끝에서 테이블로
+            Some(1) => None, // 위 끝에서 테이블로
+            Some(2) => None, // 위 끝에서 테이블로
+            Some(3) => Some(0),
+            Some(4) => Some(1),
+            Some(5) => Some(2),
+            _ => Some(0),
         };
     }
 
@@ -178,11 +217,23 @@ impl ResourceUsageState {
     pub fn activate_control(&mut self) {
         match self.selected_control {
             Some(0) => {
-                // 시작/중지 버튼 - 자동 수집 토글
-                self.toggle_auto_collection();
+                // 필터 - 그룹 변경 (Shift+←/→로 처리되므로 여기서는 아무것도 안 함)
             }
             Some(1) => {
-                // 수집 주기 조작 (현재는 +/- 키로만 가능)
+                // 자동수집 - 토글
+                self.toggle_auto_collection();
+            }
+            Some(2) => {
+                // 즉시수집 - 수집 시작 (실제 실행은 crossterm.rs에서 처리)
+            }
+            Some(3) => {
+                // 수집주기 - +/- 키로 변경 (여기서는 아무것도 안 함)
+            }
+            Some(4) => {
+                // 상태 - 정보만 표시
+            }
+            Some(5) => {
+                // 마지막수집 - 정보만 표시
             }
             _ => {}
         }
@@ -474,13 +525,6 @@ impl App {
         // 실제 수집은 crossterm.rs의 이벤트 루프에서 처리
     }
 
-    pub fn on_left(&mut self) {
-        self.current_tab = self.current_tab.previous();
-    }
-
-    pub fn on_right(&mut self) {
-        self.current_tab = self.current_tab.next();
-    }
 
     pub fn on_up(&mut self) {
         match self.current_tab {
@@ -492,8 +536,8 @@ impl App {
                         self.resource_usage.previous();
                     }
                     Some(_) => {
-                        // 컨트롤 모드: 컨트롤 전환
-                        self.resource_usage.previous_control();
+                        // 컨트롤 모드: 위로 이동
+                        self.resource_usage.move_control_up();
                     }
                 }
             }
@@ -508,23 +552,59 @@ impl App {
             TabIndex::ResourceUsage => {
                 match self.resource_usage.selected_control {
                     None => {
-                        // 테이블 모드: 첫 번째 컨트롤(시작/중지)로 이동
+                        // 테이블 모드: 첫 번째 컨트롤로 이동
                         self.resource_usage.selected_control = Some(0);
                     }
-                    Some(0) => {
-                        // 시작/중지에서 아래로: 수집 주기로
-                        self.resource_usage.selected_control = Some(1);
+                    Some(_) => {
+                        // 컨트롤 모드: 아래로 이동
+                        self.resource_usage.move_control_down();
                     }
-                    Some(1) => {
-                        // 수집 주기에서 아래로: 테이블로 이동
-                        self.resource_usage.selected_control = None;
-                        self.resource_usage.next();
-                    }
-                    _ => {}
                 }
             }
             TabIndex::SessionBrowser => self.session_browser.next(),
             TabIndex::TrafficLogs => {}
+        }
+    }
+
+    pub fn on_left(&mut self) {
+        match self.current_tab {
+            TabIndex::ProxyManagement => {}
+            TabIndex::ResourceUsage => {
+                match self.resource_usage.selected_control {
+                    None => {
+                        // 테이블 모드: 탭 전환
+                        self.current_tab = self.current_tab.previous();
+                    }
+                    Some(_) => {
+                        // 컨트롤 모드: 왼쪽으로 이동
+                        self.resource_usage.move_control_left();
+                    }
+                }
+            }
+            _ => {
+                self.current_tab = self.current_tab.previous();
+            }
+        }
+    }
+
+    pub fn on_right(&mut self) {
+        match self.current_tab {
+            TabIndex::ProxyManagement => {}
+            TabIndex::ResourceUsage => {
+                match self.resource_usage.selected_control {
+                    None => {
+                        // 테이블 모드: 탭 전환
+                        self.current_tab = self.current_tab.next();
+                    }
+                    Some(_) => {
+                        // 컨트롤 모드: 오른쪽으로 이동
+                        self.resource_usage.move_control_right();
+                    }
+                }
+            }
+            _ => {
+                self.current_tab = self.current_tab.next();
+            }
         }
     }
 
@@ -557,12 +637,6 @@ impl App {
             '-' | '_' => {
                 if self.current_tab == TabIndex::ResourceUsage {
                     self.resource_usage.decrease_interval();
-                }
-            }
-            'c' | 'C' => {
-                if self.current_tab == TabIndex::ResourceUsage && !self.is_collecting {
-                    // 수집 시작은 이벤트 루프에서 처리해야 하므로 플래그만 설정
-                    // 실제 수집은 crossterm.rs의 이벤트 루프에서 처리
                 }
             }
             _ => {}

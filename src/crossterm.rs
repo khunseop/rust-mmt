@@ -118,8 +118,8 @@ fn run_app<B: Backend>(
                         KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
                         KeyCode::Tab => app_guard.on_right(),
                         KeyCode::BackTab => app_guard.on_left(),
-                        KeyCode::Char(' ') | KeyCode::Enter => {
-                            // Space 또는 Enter로 자동 수집 토글
+                        KeyCode::Char(' ') => {
+                            // Space로 자동 수집 토글
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
                                 && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
                             {
@@ -137,20 +137,41 @@ fn run_app<B: Backend>(
                                 }
                             }
                         }
-                        KeyCode::Char('c') | KeyCode::Char('C') => {
-                            // C 키로 즉시 수집 (자동 수집과 무관하게)
-                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
-                                && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
-                                && collection_task.is_none()
-                            {
-                                // 즉시 수집 시작
-                                let app_clone = app.clone();
-                                collection_task = Some(rt.spawn(async move {
-                                    let mut app = app_clone.lock().await;
-                                    if let Err(e) = app.start_collection().await {
-                                        eprintln!("수집 실패: {}", e);
+                        KeyCode::Enter => {
+                            // Enter로 선택된 컨트롤 활성화
+                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
+                                if let Some(control_idx) = app_guard.resource_usage.selected_control {
+                                    app_guard.resource_usage.activate_control();
+                                    
+                                    // 즉시수집 버튼(2)이 선택되었고 수집 가능한 상태면 수집 시작
+                                    if control_idx == 2
+                                        && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
+                                        && collection_task.is_none()
+                                    {
+                                        let app_clone = app.clone();
+                                        collection_task = Some(rt.spawn(async move {
+                                            let mut app = app_clone.lock().await;
+                                            if let Err(e) = app.start_collection().await {
+                                                eprintln!("수집 실패: {}", e);
+                                            }
+                                        }));
                                     }
-                                }));
+                                } else {
+                                    // 테이블 모드에서 Enter는 자동 수집 토글
+                                    if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle {
+                                        app_guard.resource_usage.toggle_auto_collection();
+                                        
+                                        if app_guard.resource_usage.auto_collection_enabled && collection_task.is_none() {
+                                            let app_clone = app.clone();
+                                            collection_task = Some(rt.spawn(async move {
+                                                let mut app = app_clone.lock().await;
+                                                if let Err(e) = app.start_collection().await {
+                                                    eprintln!("수집 실패: {}", e);
+                                                }
+                                            }));
+                                        }
+                                    }
+                                }
                             }
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
