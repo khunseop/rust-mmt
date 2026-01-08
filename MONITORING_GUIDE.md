@@ -8,7 +8,8 @@
 2. [수집 주기 설정](#수집-주기-설정)
 3. [OID 설정](#oid-설정)
 4. [인터페이스(회선) 설정](#인터페이스회선-설정)
-5. [프록시 설정](#프록시-설정)
+5. [임계치 설정](#임계치-설정)
+6. [프록시 설정](#프록시-설정)
 
 ---
 
@@ -42,9 +43,10 @@
 #### 키보드 단축키
 
 - **`C`**: 수동 수집 시작
-- **`Space` 또는 `Enter`**: 자동 수집 시작/중지 토글
+- **`Space`**: 자동 수집 시작/중지 토글
 - **`+` 또는 `=`**: 수집 주기 증가 (10초 → 30초 → 60초 → 120초 → 300초 → 600초)
 - **`-`**: 수집 주기 감소 (600초 → 300초 → 120초 → 60초 → 30초 → 10초)
+- **`Shift+←` / `Shift+→`**: 그룹 선택 (전체보기 포함)
 
 #### 수집 주기 단계
 
@@ -224,6 +226,87 @@ IF-MIB::ifDescr.2 = STRING: eth0
 
 ---
 
+## 임계치 설정
+
+자원 사용률 모니터링에서 각 지표의 임계치를 설정하여 색상으로 상태를 표시할 수 있습니다.
+
+### 임계치 색상 규칙
+
+- **하얀색**: warning 임계치 미만 (정상)
+- **노란색**: warning 이상, critical 미만 (경고)
+- **빨간색**: critical 이상 (위험)
+
+### 설정 형식
+
+`config/resource_config.json` 파일의 `thresholds` 섹션에서 각 지표의 임계치를 설정합니다:
+
+```json
+{
+  "thresholds": {
+    "cpu": {
+      "warning": 70.0,
+      "critical": 90.0
+    },
+    "mem": {
+      "warning": 70.0,
+      "critical": 90.0
+    },
+    "cc": {
+      "warning": 10000.0,
+      "critical": 50000.0
+    },
+    "cs": {
+      "warning": 10000.0,
+      "critical": 50000.0
+    },
+    "http": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "https": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "ftp": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "interface_traffic": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    }
+  }
+}
+```
+
+### 지표별 단위
+
+- **cpu, mem**: 퍼센트 (0-100)
+- **cc, cs**: 개수
+- **http, https, ftp**: bps (비트/초)
+- **interface_traffic**: bps (비트/초, in/out 중 더 높은 값 기준)
+
+### 기본값
+
+설정 파일에 임계치가 없거나 일부 값이 없으면 다음 기본값이 사용됩니다:
+
+- CPU, MEM: warning 70%, critical 90%
+- CC, CS: warning 10000, critical 50000
+- HTTP, HTTPS, FTP: warning 1Gbps, critical 5Gbps
+- 인터페이스 트래픽: warning 1Gbps, critical 5Gbps
+
+### 예시
+
+CPU 사용률이 75%인 경우:
+- warning(70%) 이상이므로 **노란색**으로 표시됩니다.
+
+CPU 사용률이 95%인 경우:
+- critical(90%) 이상이므로 **빨간색**으로 표시됩니다.
+
+인터페이스 트래픽의 경우, in/out 중 더 높은 값을 기준으로 색상이 결정됩니다.
+
+---
+
 ## 프록시 설정
 
 `config/proxies.json` 파일에서 모니터링할 프록시 서버를 설정합니다.
@@ -308,6 +391,40 @@ IF-MIB::ifDescr.2 = STRING: eth0
     "bond1": {
       "in_oid": "1.3.6.1.2.1.2.2.1.10.11",
       "out_oid": "1.3.6.1.2.1.2.2.1.16.11"
+    }
+  },
+  "thresholds": {
+    "cpu": {
+      "warning": 70.0,
+      "critical": 90.0
+    },
+    "mem": {
+      "warning": 70.0,
+      "critical": 90.0
+    },
+    "cc": {
+      "warning": 10000.0,
+      "critical": 50000.0
+    },
+    "cs": {
+      "warning": 10000.0,
+      "critical": 50000.0
+    },
+    "http": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "https": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "ftp": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "interface_traffic": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
     }
   }
 }
