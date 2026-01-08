@@ -151,7 +151,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // 컨트롤 영역 (2줄)
+            Constraint::Length(7),  // 컨트롤 영역 (2줄, 각 3줄)
             Constraint::Min(3),     // 데이터 테이블
             Constraint::Length(4),  // 키보드 단축키 도움말 (컴팩트)
         ])
@@ -160,7 +160,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     // 컨트롤 영역을 2x3 그리드로 구성
     let control_rows = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Length(2)])
+        .constraints([Constraint::Length(3), Constraint::Length(3)])
         .split(chunks[0]);
     
     // 첫 번째 줄: 필터, 자동수집, 즉시수집
@@ -186,18 +186,28 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     use ratatui::widgets::Paragraph;
     
     // 컨트롤 렌더링 헬퍼 함수
-    fn render_control(frame: &mut Frame, idx: usize, title: &str, content: &str, default_style: Style, area: Rect, selected_control: Option<usize>) {
+    // use_selected_color: true면 선택되었을 때 노란색으로 표시, false면 default_style 유지
+    fn render_control(frame: &mut Frame, idx: usize, title: &str, content: &str, default_style: Style, area: Rect, selected_control: Option<usize>, use_selected_color: bool) {
         let is_selected = selected_control == Some(idx);
-        let block_style = if is_selected {
+        let border_style = if is_selected {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
         
+        // 선택되었을 때 색상 처리
+        let content_style = if is_selected && use_selected_color {
+            // 선택되었고 use_selected_color가 true면 노란색으로 표시
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            // 선택되지 않았거나 use_selected_color가 false면 default_style 사용
+            default_style
+        };
+        
         frame.render_widget(
             Paragraph::new(content)
-                .block(Block::default().borders(Borders::ALL).title(title).border_style(block_style))
-                .style(if is_selected { block_style } else { default_style }),
+                .block(Block::default().borders(Borders::ALL).title(title).border_style(border_style))
+                .style(content_style),
             area,
         );
     }
@@ -207,7 +217,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     // 0: 필터
     let group_name = app.resource_usage.get_group_display_name();
     let group_text = format!("{}\nShift+←/→", group_name);
-    render_control(frame, 0, "필터", &group_text, Style::default().fg(Color::Cyan), control_row1[0], selected);
+    render_control(frame, 0, "필터", &group_text, Style::default().fg(Color::Cyan), control_row1[0], selected, true);
     
     // 1: 자동수집
     let auto_status = if app.resource_usage.auto_collection_enabled {
@@ -224,12 +234,14 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "▶ OFF".to_string()
     };
+    // 자동수집: 선택되지 않았을 때는 상태에 따라 색상 변경 (켜져있으면 초록색, 꺼져있으면 회색)
+    // 선택되었을 때는 노란색으로 표시 (use_selected_color=true)
     let auto_style = if app.resource_usage.auto_collection_enabled {
         Style::default().fg(Color::Green)
     } else {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(Color::Gray)
     };
-    render_control(frame, 1, "자동수집", &auto_status, auto_style, control_row1[1], selected);
+    render_control(frame, 1, "자동수집", &auto_status, auto_style, control_row1[1], selected, true);
     
     // 2: 즉시수집
     let instant_text = if app.resource_usage.collection_status == crate::app::CollectionStatus::Collecting
@@ -238,12 +250,12 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "▶ 즉시수집"
     };
-    render_control(frame, 2, "즉시수집", instant_text, Style::default().fg(Color::Blue), control_row1[2], selected);
+    render_control(frame, 2, "즉시수집", instant_text, Style::default().fg(Color::Blue), control_row1[2], selected, true);
     
     // 3: 수집주기
     let interval = app.resource_usage.get_interval_display();
     let interval_text = format!("{}\n+/-: 변경", interval);
-    render_control(frame, 3, "수집주기", &interval_text, Style::default().fg(Color::White), control_row2[0], selected);
+    render_control(frame, 3, "수집주기", &interval_text, Style::default().fg(Color::White), control_row2[0], selected, true);
     
     // 4: 상태
     let (status_text, status_color, elapsed_sec) = match app.resource_usage.collection_status {
@@ -266,7 +278,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         status_text
     };
-    render_control(frame, 4, "상태", &status_display, Style::default().fg(status_color), control_row2[1], selected);
+    render_control(frame, 4, "상태", &status_display, Style::default().fg(status_color), control_row2[1], selected, false);
 
     // 5: 마지막 수집 시간
     let last_collection_text = if let Some(last_time) = app.resource_usage.last_collection_time {
@@ -276,7 +288,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "없음".to_string()
     };
-    render_control(frame, 5, "마지막수집", &last_collection_text, Style::default().fg(Color::Cyan), control_row2[2], selected);
+    render_control(frame, 5, "마지막수집", &last_collection_text, Style::default().fg(Color::Cyan), control_row2[2], selected, true);
 
     // 회선 목록 가져오기
     let interface_names = get_interface_names();
