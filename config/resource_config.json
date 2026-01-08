@@ -39,6 +39,40 @@
       "in_oid": "",
       "out_oid": ""
     }
+  },
+  "thresholds": {
+    "cpu": {
+      "warning": 70.0,
+      "critical": 90.0
+    },
+    "mem": {
+      "warning": 70.0,
+      "critical": 90.0
+    },
+    "cc": {
+      "warning": 10000.0,
+      "critical": 50000.0
+    },
+    "cs": {
+      "warning": 10000.0,
+      "critical": 50000.0
+    },
+    "http": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "https": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "ftp": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    },
+    "interface_traffic": {
+      "warning": 1000000000.0,
+      "critical": 5000000000.0
+    }
   }
 }
 

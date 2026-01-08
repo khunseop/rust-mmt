@@ -147,6 +147,64 @@ fn get_interface_names() -> Vec<String> {
     Vec::new()
 }
 
+/// 임계치 설정 구조체
+struct ThresholdConfig {
+    warning: f64,
+    critical: f64,
+}
+
+/// 설정 파일에서 임계치를 읽어옵니다.
+fn load_thresholds() -> HashMap<String, ThresholdConfig> {
+    let config_path = get_config_path("resource_config.json");
+    let mut thresholds = HashMap::new();
+    
+    if let Ok(content) = std::fs::read_to_string(config_path) {
+        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(thresholds_obj) = config.get("thresholds").and_then(|v| v.as_object()) {
+                for (key, value) in thresholds_obj {
+                    if let Some(threshold_obj) = value.as_object() {
+                        let warning = threshold_obj.get("warning")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        let critical = threshold_obj.get("critical")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        thresholds.insert(key.clone(), ThresholdConfig { warning, critical });
+                    }
+                }
+            }
+        }
+    }
+    
+    // 기본값 설정 (설정 파일에 없을 경우)
+    if !thresholds.contains_key("cpu") {
+        thresholds.insert("cpu".to_string(), ThresholdConfig { warning: 70.0, critical: 90.0 });
+    }
+    if !thresholds.contains_key("mem") {
+        thresholds.insert("mem".to_string(), ThresholdConfig { warning: 70.0, critical: 90.0 });
+    }
+    if !thresholds.contains_key("cc") {
+        thresholds.insert("cc".to_string(), ThresholdConfig { warning: 10000.0, critical: 50000.0 });
+    }
+    if !thresholds.contains_key("cs") {
+        thresholds.insert("cs".to_string(), ThresholdConfig { warning: 10000.0, critical: 50000.0 });
+    }
+    if !thresholds.contains_key("http") {
+        thresholds.insert("http".to_string(), ThresholdConfig { warning: 1000000000.0, critical: 5000000000.0 });
+    }
+    if !thresholds.contains_key("https") {
+        thresholds.insert("https".to_string(), ThresholdConfig { warning: 1000000000.0, critical: 5000000000.0 });
+    }
+    if !thresholds.contains_key("ftp") {
+        thresholds.insert("ftp".to_string(), ThresholdConfig { warning: 1000000000.0, critical: 5000000000.0 });
+    }
+    if !thresholds.contains_key("interface_traffic") {
+        thresholds.insert("interface_traffic".to_string(), ThresholdConfig { warning: 1000000000.0, critical: 5000000000.0 });
+    }
+    
+    thresholds
+}
+
 fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
@@ -248,6 +306,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     // 회선 목록 가져오기
     let interface_names = get_interface_names();
     
+    // 임계치 설정 로드
+    let thresholds = load_thresholds();
+    
     // 테이블 영역 - Python 앱과 동일한 구조
     let table = if app.resource_usage.data.is_empty() {
         // 데이터가 없을 때 빈 테이블
@@ -344,32 +405,50 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                     let https_str = format_bps(data.https);
                     let ftp_str = format_bps(data.ftp);
                     
+                    // 임계치에 따른 색상 결정 함수
+                    fn get_threshold_color(value: Option<f64>, threshold: &ThresholdConfig) -> Color {
+                        match value {
+                            Some(v) if v >= threshold.critical => Color::Red,
+                            Some(v) if v >= threshold.warning => Color::Yellow,
+                            _ => Color::White,
+                        }
+                    }
+                    
                     // 회선 정보를 HashMap으로 변환 (빠른 조회를 위해)
                     let interface_map: HashMap<String, (f64, f64)> = data.interfaces
                         .iter()
                         .map(|iface| (iface.name.clone(), (iface.in_mbps, iface.out_mbps)))
                         .collect();
 
-                    let style = if app.resource_usage.table_state.selected() == Some(i) {
+                    let base_style = if app.resource_usage.table_state.selected() == Some(i) {
                         Style::default().bg(Color::Blue)
                     } else {
                         Style::default()
                     };
 
-                    // 기본 컬럼들
+                    // 기본 컬럼들 - 각 셀에 임계치 색상 적용
                     let proxy_display_name = data.proxy_name.as_ref().unwrap_or(&data.host);
+                    let cpu_color = thresholds.get("cpu").map(|t| get_threshold_color(data.cpu, t)).unwrap_or(Color::White);
+                    let mem_color = thresholds.get("mem").map(|t| get_threshold_color(data.mem, t)).unwrap_or(Color::White);
+                    let cc_color = thresholds.get("cc").map(|t| get_threshold_color(data.cc, t)).unwrap_or(Color::White);
+                    let cs_color = thresholds.get("cs").map(|t| get_threshold_color(data.cs, t)).unwrap_or(Color::White);
+                    let http_color = thresholds.get("http").map(|t| get_threshold_color(data.http, t)).unwrap_or(Color::White);
+                    let https_color = thresholds.get("https").map(|t| get_threshold_color(data.https, t)).unwrap_or(Color::White);
+                    let ftp_color = thresholds.get("ftp").map(|t| get_threshold_color(data.ftp, t)).unwrap_or(Color::White);
+                    
                     let mut cells = vec![
-                        Cell::from(proxy_display_name.clone()).style(style),
-                        Cell::from(cpu_str).style(style),
-                        Cell::from(mem_str).style(style),
-                        Cell::from(cc_str).style(style),
-                        Cell::from(cs_str).style(style),
-                        Cell::from(http_str).style(style),
-                        Cell::from(https_str).style(style),
-                        Cell::from(ftp_str).style(style),
+                        Cell::from(proxy_display_name.clone()).style(base_style),
+                        Cell::from(cpu_str).style(base_style.fg(cpu_color)),
+                        Cell::from(mem_str).style(base_style.fg(mem_color)),
+                        Cell::from(cc_str).style(base_style.fg(cc_color)),
+                        Cell::from(cs_str).style(base_style.fg(cs_color)),
+                        Cell::from(http_str).style(base_style.fg(http_color)),
+                        Cell::from(https_str).style(base_style.fg(https_color)),
+                        Cell::from(ftp_str).style(base_style.fg(ftp_color)),
                     ];
                     
                     // 각 회선에 대해 별도 컬럼 추가 (bps를 컴팩트하게 표시)
+                    let interface_threshold = thresholds.get("interface_traffic");
                     for if_name in &interface_names {
                         if let Some((in_bps, out_bps)) = interface_map.get(if_name) {
                             let in_str = if *in_bps >= 1_000_000_000.0 {
@@ -390,14 +469,21 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                             } else {
                                 format!("{:.0}", out_bps)
                             };
-                            cells.push(Cell::from(format!("{}/{}", in_str, out_str)).style(style));
+                            
+                            // 인터페이스 트래픽 색상 결정 (in/out 중 더 높은 값 기준)
+                            let max_traffic = in_bps.max(*out_bps);
+                            let traffic_color = interface_threshold
+                                .map(|t| get_threshold_color(Some(max_traffic), t))
+                                .unwrap_or(Color::White);
+                            
+                            cells.push(Cell::from(format!("{}/{}", in_str, out_str)).style(base_style.fg(traffic_color)));
                         } else {
-                            cells.push(Cell::from("-").style(style));
+                            cells.push(Cell::from("-").style(base_style));
                         }
                     }
                     
                     // 상태 컬럼
-                    cells.push(Cell::from("✓").style(style));
+                    cells.push(Cell::from("✓").style(base_style));
                     
                     Row::new(cells)
                 }
