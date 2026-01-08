@@ -1,22 +1,38 @@
 use crate::app::{Proxy, ResourceData, InterfaceTraffic};
 use crate::snmp::snmp_get_async;
 use crate::ssh::SshClient;
-use anyhow::{Result, Context};
+use anyhow::Result;
 use chrono::Local;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// 인터페이스 카운터 캐시: (proxy_id, interface_name) -> (in_counter, out_counter, timestamp)
+fn get_interface_cache() -> &'static Mutex<HashMap<(u32, String), (u64, u64, f64)>> {
+    static CACHE: OnceLock<Mutex<HashMap<(u32, String), (u64, u64, f64)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// 자원 수집기
 pub struct ResourceCollector {
     oids: HashMap<String, String>, // key -> OID 매핑
     community: String,
+    interface_oids: HashMap<String, (String, String)>, // interface_name -> (in_oid, out_oid)
 }
 
 impl ResourceCollector {
-    pub fn new(oids: HashMap<String, String>, community: String) -> Self {
-        Self { oids, community }
+    pub fn new(
+        oids: HashMap<String, String>,
+        community: String,
+        interface_oids: HashMap<String, (String, String)>,
+    ) -> Self {
+        Self {
+            oids,
+            community,
+            interface_oids,
+        }
     }
 
     /// 프록시의 자원 사용률을 수집합니다.
@@ -29,8 +45,8 @@ impl ResourceCollector {
         let mut https: Option<f64> = None;
         let mut ftp: Option<f64> = None;
         let mut interfaces: Vec<InterfaceTraffic> = Vec::new();
-        let mut collection_failed = false;
-        let mut error_message: Option<String> = None;
+        let collection_failed = false;
+        let error_message: Option<String> = None;
 
         // 모든 지표를 병렬로 수집
         let mut tasks: Vec<(String, tokio::task::JoinHandle<Result<f64>>)> = Vec::new();
@@ -163,7 +179,104 @@ impl ResourceCollector {
             }
         }
 
-        // 인터페이스 정보는 나중에 구현 (현재는 빈 벡터)
+        // 인터페이스 트래픽 수집
+        if !self.interface_oids.is_empty() {
+            let mut interface_tasks = Vec::new();
+            for (if_name, (in_oid, out_oid)) in &self.interface_oids {
+                if !in_oid.is_empty() {
+                    let host = proxy.host.clone();
+                    let community = self.community.clone();
+                    let oid = in_oid.clone();
+                    let if_name_clone = if_name.clone();
+                    interface_tasks.push((
+                        if_name_clone.clone(),
+                        "in".to_string(),
+                        tokio::spawn(async move {
+                            snmp_get_async(&host, &community, &oid).await
+                        }),
+                    ));
+                }
+                if !out_oid.is_empty() {
+                    let host = proxy.host.clone();
+                    let community = self.community.clone();
+                    let oid = out_oid.clone();
+                    let if_name_clone = if_name.clone();
+                    interface_tasks.push((
+                        if_name_clone.clone(),
+                        "out".to_string(),
+                        tokio::spawn(async move {
+                            snmp_get_async(&host, &community, &oid).await
+                        }),
+                    ));
+                }
+            }
+
+            // 인터페이스 카운터 수집
+            let mut interface_counters: HashMap<String, (Option<u64>, Option<u64>)> = HashMap::new();
+            for (if_name, direction, handle) in interface_tasks {
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    handle,
+                )
+                .await;
+
+                if let Ok(Ok(Ok(value))) = result {
+                    let counter = value as u64;
+                    let entry = interface_counters.entry(if_name).or_insert((None, None));
+                    match direction.as_str() {
+                        "in" => entry.0 = Some(counter),
+                        "out" => entry.1 = Some(counter),
+                        _ => {}
+                    }
+                }
+            }
+
+            // Mbps 계산 (이전 값과 비교)
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64();
+
+            for (if_name, (in_counter, out_counter)) in interface_counters {
+                let cache_key = (proxy.id, if_name.clone());
+                let mut cache = get_interface_cache().lock().unwrap();
+
+                if let Some((prev_in, prev_out, prev_time)) = cache.get(&cache_key) {
+                    let time_diff = current_time - prev_time;
+                    if time_diff >= 1.0 && time_diff <= 300.0 {
+                        // 1초 이상 5분 이하 차이만 유효
+                        let in_mbps = if let Some(current_in) = in_counter {
+                            calculate_mbps(*prev_in, current_in, time_diff)
+                        } else {
+                            0.0
+                        };
+                        let out_mbps = if let Some(current_out) = out_counter {
+                            calculate_mbps(*prev_out, current_out, time_diff)
+                        } else {
+                            0.0
+                        };
+
+                        if in_mbps > 0.0 || out_mbps > 0.0 {
+                            interfaces.push(InterfaceTraffic {
+                                name: if_name.clone(),
+                                in_mbps,
+                                out_mbps,
+                            });
+                        }
+                    }
+                }
+
+                // 캐시 업데이트
+                cache.insert(
+                    cache_key,
+                    (
+                        in_counter.unwrap_or(0),
+                        out_counter.unwrap_or(0),
+                        current_time,
+                    ),
+                );
+            }
+        }
 
         Ok(ResourceData {
             proxy_id: proxy.id,
@@ -193,10 +306,11 @@ impl ResourceCollector {
             proxy_map.insert(proxy.id, proxy.clone());
             let oids = self.oids.clone();
             let community = self.community.clone();
+            let interface_oids = self.interface_oids.clone();
             let proxy_clone = proxy.clone();
             
             tasks.push((proxy.id, tokio::spawn(async move {
-                let collector = ResourceCollector::new(oids, community);
+                let collector = ResourceCollector::new(oids, community, interface_oids);
                 collector.collect_for_proxy(&proxy_clone).await
             })));
         }
@@ -291,6 +405,19 @@ impl ResourceCollector {
 
         Ok(results)
     }
+}
+
+/// Mbps 계산 함수 (32비트 카운터 오버플로우 처리)
+fn calculate_mbps(prev: u64, current: u64, time_diff_sec: f64) -> f64 {
+    let diff = if current >= prev {
+        current - prev
+    } else {
+        // 카운터 오버플로우 (32비트 최대값: 4294967295)
+        (u64::MAX - prev) + current + 1
+    };
+    
+    // 바이트를 Mbps로 변환: (bytes * 8) / (time_diff * 1_000_000)
+    (diff as f64 * 8.0) / (time_diff_sec * 1_000_000.0)
 }
 
 // 로그 파일 쓰기를 위한 뮤텍스 (동시성 보장)

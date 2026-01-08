@@ -110,6 +110,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         .constraints([
             Constraint::Length(3),  // 컨트롤 영역
             Constraint::Min(3),     // 데이터 테이블
+            Constraint::Length(8),  // 키보드 단축키 도움말
         ])
         .split(area);
 
@@ -120,7 +121,8 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(20), // 그룹
             Constraint::Length(25), // 자동수집 버튼
             Constraint::Length(20), // 수집 주기
-            Constraint::Length(20), // 상태
+            Constraint::Length(25), // 상태
+            Constraint::Length(30), // 마지막 수집 시간
             Constraint::Min(0),     // 나머지
         ])
         .split(chunks[0]);
@@ -177,26 +179,47 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     
     // 상태
-    let (status_text, status_color) = match app.resource_usage.collection_status {
-        crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray),
-        crate::app::CollectionStatus::Starting => ("시작중".to_string(), Color::Yellow),
+    let (status_text, status_color, elapsed_sec) = match app.resource_usage.collection_status {
+        crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray, None),
+        crate::app::CollectionStatus::Starting => ("시작중".to_string(), Color::Yellow, None),
         crate::app::CollectionStatus::Collecting => {
+            let elapsed = app.resource_usage.collection_start_time
+                .map(|start| (chrono::Local::now() - start).num_seconds());
             if let Some((completed, total)) = app.resource_usage.collection_progress {
-                (format!("수집중 ({}/{})", completed, total), Color::Yellow)
+                (format!("수집중 ({}/{})", completed, total), Color::Yellow, elapsed)
             } else {
-                ("수집중".to_string(), Color::Yellow)
+                ("수집중".to_string(), Color::Yellow, elapsed)
             }
         }
-        crate::app::CollectionStatus::Success => ("완료".to_string(), Color::Green),
-        crate::app::CollectionStatus::Failed => ("실패".to_string(), Color::Red),
+        crate::app::CollectionStatus::Success => ("완료".to_string(), Color::Green, None),
+        crate::app::CollectionStatus::Failed => ("실패".to_string(), Color::Red, None),
     };
     
-    let status_display = format!("{}\nC: 즉시수집", status_text);
+    let status_display = if let Some(elapsed) = elapsed_sec {
+        format!("{}\n경과: {}초", status_text, elapsed)
+    } else {
+        format!("{}\nC: 즉시수집", status_text)
+    };
     frame.render_widget(
         Paragraph::new(status_display)
             .block(Block::default().borders(Borders::ALL).title("상태"))
             .style(Style::default().fg(status_color)),
         control_chunks[3],
+    );
+
+    // 마지막 수집 시간
+    let last_collection_text = if let Some(last_time) = app.resource_usage.last_collection_time {
+        format!("{}\n{}", 
+            last_time.format("%H:%M:%S"),
+            last_time.format("%Y-%m-%d"))
+    } else {
+        "수집 이력 없음".to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(last_collection_text)
+            .block(Block::default().borders(Borders::ALL).title("마지막 수집"))
+            .style(Style::default().fg(Color::Cyan)),
+        control_chunks[4],
     );
 
     // 테이블 영역 - Python 앱과 동일한 구조
@@ -315,6 +338,26 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     };
 
     frame.render_stateful_widget(table, chunks[1], &mut app.resource_usage.table_state);
+
+    // 키보드 단축키 도움말
+    let help_text = vec![
+        "전역:",
+        "  Tab/Shift+Tab  - 탭 전환",
+        "  q/Esc          - 종료",
+        "",
+        "자원사용률:",
+        "  C               - 즉시 수집",
+        "  Space/Enter     - 자동 수집 시작/중지",
+        "  +/-             - 수집 주기 변경",
+        "  Shift+←/→       - 그룹 필터 변경",
+        "  ↑/↓, k/j        - 테이블 이동",
+    ];
+    frame.render_widget(
+        Paragraph::new(help_text.join("\n"))
+            .block(Block::default().borders(Borders::ALL).title("키보드 단축키"))
+            .style(Style::default().fg(Color::Gray)),
+        chunks[2],
+    );
 }
 
 fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {

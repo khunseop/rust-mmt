@@ -185,6 +185,7 @@ fn run_app<B: Backend>(
                         || app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Failed {
                         app_guard.resource_usage.collection_status = crate::app::CollectionStatus::Idle;
                         app_guard.resource_usage.collection_progress = None;
+                        app_guard.resource_usage.collection_start_time = None;
                     }
                 });
             }

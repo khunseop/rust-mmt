@@ -51,12 +51,6 @@ pub struct Proxy {
     pub group: String,
     #[serde(default)]
     pub traffic_log_path: Option<String>,
-    #[serde(default = "default_snmp_community")]
-    pub snmp_community: String,
-}
-
-fn default_snmp_community() -> String {
-    "public".to_string()
 }
 
 /// 인터페이스 트래픽 정보
@@ -127,6 +121,7 @@ pub struct ResourceUsageState {
     pub selected_control: Option<usize>, // 선택된 컨트롤 (None: 테이블, Some(0): 시작/중지, Some(1): 수집주기)
     pub auto_collection_enabled: bool, // 자동 수집 활성화 여부
     pub next_auto_collection_time: Option<chrono::DateTime<chrono::Local>>, // 다음 자동 수집 예정 시간
+    pub collection_start_time: Option<chrono::DateTime<chrono::Local>>, // 수집 시작 시간
 }
 
 impl ResourceUsageState {
@@ -146,6 +141,7 @@ impl ResourceUsageState {
             selected_control: None, // 기본값: 테이블 모드
             auto_collection_enabled: false,
             next_auto_collection_time: None,
+            collection_start_time: None,
         }
     }
 
@@ -569,6 +565,27 @@ impl App {
             }
         }
 
+        // 인터페이스 OID 설정 읽기
+        let interface_oids_json = config.get("interface_oids").and_then(|v| v.as_object());
+        let mut interface_oids = std::collections::HashMap::new();
+        if let Some(if_oids_obj) = interface_oids_json {
+            for (if_name, if_config) in if_oids_obj {
+                if let Some(if_config_obj) = if_config.as_object() {
+                    let in_oid = if_config_obj.get("in_oid")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let out_oid = if_config_obj.get("out_oid")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !in_oid.is_empty() || !out_oid.is_empty() {
+                        interface_oids.insert(if_name.clone(), (in_oid, out_oid));
+                    }
+                }
+            }
+        }
+
         // 필터링된 프록시 목록 가져오기
         let proxies_to_collect: Vec<Proxy> = match &self.resource_usage.selected_group {
             None => self.proxies.clone(), // 전체
@@ -586,8 +603,9 @@ impl App {
 
         self.is_collecting = true;
         self.resource_usage.last_error = None;
-        self.resource_usage.collection_status = CollectionStatus::Starting;
+        self.resource_usage.collection_status = CollectionStatus::Collecting;
         self.resource_usage.collection_progress = Some((0, proxies_to_collect.len()));
+        self.resource_usage.collection_start_time = Some(chrono::Local::now());
         
         // 자동 수집이 활성화되어 있으면 다음 수집 시간 업데이트
         if self.resource_usage.auto_collection_enabled {
@@ -595,8 +613,7 @@ impl App {
         }
 
         // 수집 실행
-        let collector = crate::collector::ResourceCollector::new(oids, community);
-        self.resource_usage.collection_status = CollectionStatus::Collecting;
+        let collector = crate::collector::ResourceCollector::new(oids, community, interface_oids);
         
         match collector.collect_multiple(&proxies_to_collect).await {
             Ok(results) => {
@@ -606,7 +623,8 @@ impl App {
                 let total_count = proxies_to_collect.len();
                 
                 self.resource_usage.data = results;
-                self.resource_usage.last_collection_time = Some(chrono::Local::now());
+                let now = chrono::Local::now();
+                self.resource_usage.last_collection_time = Some(now);
                 
                 // 부분 성공도 성공으로 처리
                 if success_count > 0 {
@@ -627,6 +645,10 @@ impl App {
                     self.resource_usage.last_error = Some("모든 프록시 수집 실패".to_string());
                     self.resource_usage.collection_progress = None;
                 }
+                
+                // 수집 완료 후 상태 초기화
+                self.is_collecting = false;
+                self.resource_usage.collection_start_time = None;
 
                 // CSV 저장 (실패한 것도 포함)
                 if !self.resource_usage.data.is_empty() {
@@ -646,6 +668,8 @@ impl App {
                 self.resource_usage.collection_status = CollectionStatus::Failed;
                 self.resource_usage.data = Vec::new();
                 self.resource_usage.collection_progress = None;
+                self.is_collecting = false;
+                self.resource_usage.collection_start_time = None;
             }
         }
 
