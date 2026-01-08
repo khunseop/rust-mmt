@@ -299,8 +299,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                     };
 
                     // 기본 컬럼 + 회선 컬럼들 (컴팩트하게)
+                    let proxy_display_name = data.proxy_name.as_ref().unwrap_or(&data.host);
                     let mut cells = vec![
-                        Cell::from(data.host.clone()).style(style),
+                        Cell::from(proxy_display_name.clone()).style(style),
                         Cell::from("-").style(style),
                         Cell::from("-").style(style),
                         Cell::from("-").style(style),
@@ -376,8 +377,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                     };
 
                     // 기본 컬럼들
+                    let proxy_display_name = data.proxy_name.as_ref().unwrap_or(&data.host);
                     let mut cells = vec![
-                        Cell::from(data.host.clone()).style(style),
+                        Cell::from(proxy_display_name.clone()).style(style),
                         Cell::from(cpu_str).style(style),
                         Cell::from(mem_str).style(style),
                         Cell::from(cc_str).style(style),

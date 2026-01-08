@@ -180,14 +180,19 @@ impl ResourceCollector {
                             
                             if let Some((prev_counter, prev_time)) = cache.get(&cache_key) {
                                 let time_diff = current_time - prev_time;
+                                // 1초 이상 5분 이하 차이만 유효 (재시작 시 오래된 캐시 무시)
                                 if time_diff >= 1.0 && time_diff <= 300.0 {
                                     // bps 계산 (바이트/초 * 8 = 비트/초)
                                     let bps = calculate_bps(*prev_counter, counter, time_diff);
-                                    match key.as_str() {
-                                        "http" => http = Some(bps),
-                                        "https" => https = Some(bps),
-                                        "ftp" => ftp = Some(bps),
-                                        _ => {}
+                                    // 비정상적으로 큰 값 필터링 (예: 100Gbps 이상은 무시)
+                                    const MAX_BPS: f64 = 100_000_000_000.0; // 100Gbps
+                                    if bps <= MAX_BPS {
+                                        match key.as_str() {
+                                            "http" => http = Some(bps),
+                                            "https" => https = Some(bps),
+                                            "ftp" => ftp = Some(bps),
+                                            _ => {}
+                                        }
                                     }
                                 }
                             }
@@ -278,8 +283,8 @@ impl ResourceCollector {
 
                 if let Some((prev_in, prev_out, prev_time)) = cache.get(&cache_key) {
                     let time_diff = current_time - prev_time;
+                    // 1초 이상 5분 이하 차이만 유효 (재시작 시 오래된 캐시 무시)
                     if time_diff >= 1.0 && time_diff <= 300.0 {
-                        // 1초 이상 5분 이하 차이만 유효
                         let in_bps = if let Some(current_in) = in_counter {
                             calculate_bps(*prev_in, current_in, time_diff)
                         } else {
@@ -291,7 +296,9 @@ impl ResourceCollector {
                             0.0
                         };
 
-                        if in_bps > 0.0 || out_bps > 0.0 {
+                        // 비정상적으로 큰 값 필터링 (예: 100Gbps 이상은 무시)
+                        const MAX_BPS: f64 = 100_000_000_000.0; // 100Gbps
+                        if (in_bps > 0.0 || out_bps > 0.0) && in_bps <= MAX_BPS && out_bps <= MAX_BPS {
                             interfaces.push(InterfaceTraffic {
                                 name: if_name.clone(),
                                 in_mbps: in_bps, // 필드명은 유지하지만 값은 bps
@@ -316,7 +323,7 @@ impl ResourceCollector {
         Ok(ResourceData {
             proxy_id: proxy.id,
             host: proxy.host.clone(),
-            proxy_name: None,
+            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
             cpu,
             mem,
             cc,
@@ -373,7 +380,7 @@ impl ResourceCollector {
                         let failed_data = ResourceData {
                             proxy_id: proxy.id,
                             host: proxy.host.clone(),
-                            proxy_name: None,
+                            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
                             cpu: None,
                             mem: None,
                             cc: None,
@@ -396,7 +403,7 @@ impl ResourceCollector {
                         let failed_data = ResourceData {
                             proxy_id: proxy.id,
                             host: proxy.host.clone(),
-                            proxy_name: None,
+                            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
                             cpu: None,
                             mem: None,
                             cc: None,
@@ -419,7 +426,7 @@ impl ResourceCollector {
                         let failed_data = ResourceData {
                             proxy_id: proxy.id,
                             host: proxy.host.clone(),
-                            proxy_name: None,
+                            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
                             cpu: None,
                             mem: None,
                             cc: None,
@@ -449,12 +456,27 @@ impl ResourceCollector {
 /// bps 계산 함수 (32비트 카운터 오버플로우 처리)
 /// 바이트 카운터를 비트/초로 변환
 fn calculate_bps(prev: u64, current: u64, time_diff_sec: f64) -> f64 {
+    // 32비트 카운터 최대값
+    const COUNTER32_MAX: u64 = 4_294_967_295;
+    
     let diff = if current >= prev {
         current - prev
     } else {
-        // 카운터 오버플로우 (32비트 최대값: 4294967295)
-        (u64::MAX - prev) + current + 1
+        // 카운터 오버플로우 처리
+        // 단, 차이가 너무 크면 (예: COUNTER32_MAX의 절반 이상) 오버플로우가 아닐 수 있음
+        // 이 경우는 재시작이나 리셋으로 간주하고 무시
+        let overflow_diff = (COUNTER32_MAX - prev) + current + 1;
+        if overflow_diff > COUNTER32_MAX / 2 {
+            // 차이가 너무 크면 비정상적인 값으로 간주
+            return 0.0;
+        }
+        overflow_diff
     };
+    
+    // 비정상적으로 큰 차이 필터링 (예: 1초에 10GB 이상 증가는 비정상)
+    if diff > 10_000_000_000 {
+        return 0.0;
+    }
     
     // 바이트를 bps로 변환: (bytes * 8) / time_diff_sec
     (diff as f64 * 8.0) / time_diff_sec
