@@ -321,7 +321,22 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                     // 성공한 경우
                     let format_percent = |v: Option<f64>| -> String {
                         v.map(|val| format!("{:.0}%", val))
-                            .unwrap_or_else(|| "N/A".to_string())
+                            .unwrap_or_else(|| "-".to_string())
+                    };
+
+                    // 개수 표시 (CC, CS)
+                    let format_count = |v: Option<f64>| -> String {
+                        v.map(|val| {
+                            let count = val as u64;
+                            if count >= 1_000_000 {
+                                format!("{:.1}M", count as f64 / 1_000_000.0)
+                            } else if count >= 1_000 {
+                                format!("{:.1}K", count as f64 / 1_000.0)
+                            } else {
+                                format!("{}", count)
+                            }
+                        })
+                        .unwrap_or_else(|| "-".to_string())
                     };
 
                     // bps를 컴팩트한 형식으로 표시 (K/M/G 단위)
@@ -337,13 +352,13 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                                 format!("{:.0}", bps)
                             }
                         })
-                        .unwrap_or_else(|| "N/A".to_string())
+                        .unwrap_or_else(|| "-".to_string())
                     };
 
                     let cpu_str = format_percent(data.cpu);
                     let mem_str = format_percent(data.mem);
-                    let cc_str = format_percent(data.cc);
-                    let cs_str = format_percent(data.cs);
+                    let cc_str = format_count(data.cc);
+                    let cs_str = format_count(data.cs);
                     let http_str = format_bps(data.http);
                     let https_str = format_bps(data.https);
                     let ftp_str = format_bps(data.ftp);
@@ -431,19 +446,32 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
             Cell::from("프록시").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("CPU%").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("MEM%").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("CC%").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("CS%").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("CC").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("CS").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("HTTP").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("HTTPS").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("FTP").style(Style::default().add_modifier(Modifier::BOLD)),
         ];
         
-        // 각 회선에 대해 헤더 추가 (짧게)
+        // 각 회선에 대해 헤더 추가 (컴팩트하게)
         for if_name in &interface_names {
-            // 인터페이스 이름을 짧게 표시 (예: eth0 -> e0)
-            let short_name = if if_name.len() > 4 {
-                format!("{}", &if_name[..4])
+            // 인터페이스 이름을 컴팩트하게 표시
+            // bond0, bond1 같은 경우를 고려하여 숫자 포함
+            let short_name = if if_name.len() > 5 {
+                // 5자 초과면 앞부분 + 마지막 숫자 (예: "eth10" -> "eth1")
+                if let Some(last_char) = if_name.chars().last() {
+                    if last_char.is_ascii_digit() {
+                        // 마지막 문자가 숫자면 앞부분 + 숫자
+                        let prefix_len = (if_name.len() - 1).min(4);
+                        format!("{}{}", &if_name[..prefix_len], last_char)
+                    } else {
+                        format!("{}", &if_name[..5])
+                    }
+                } else {
+                    format!("{}", &if_name[..5])
+                }
             } else {
+                // 5자 이하면 그대로 표시 (bond0, bond1 등)
                 if_name.clone()
             };
             header_cells.push(Cell::from(short_name).style(Style::default().add_modifier(Modifier::BOLD)));
