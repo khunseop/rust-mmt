@@ -15,3 +15,5 @@ csv = "1.3"
 ssh2 = "0.9"
 tokio-util = { version = "0.7", features = ["compat"] }
 futures = "0.3"
+rasn-snmp = "0.3"
+rasn = "0.11"
