@@ -45,8 +45,8 @@ impl ResourceCollector {
         let mut https: Option<f64> = None;
         let mut ftp: Option<f64> = None;
         let mut interfaces: Vec<InterfaceTraffic> = Vec::new();
-        let collection_failed = false;
-        let error_message: Option<String> = None;
+        let mut collection_failed = false;
+        let mut error_messages: Vec<String> = Vec::new();
 
         // 모든 지표를 병렬로 수집
         let mut tasks: Vec<(String, tokio::task::JoinHandle<Result<f64>>)> = Vec::new();
@@ -168,13 +168,22 @@ impl ResourceCollector {
                     }
                 }
                 Ok(Ok(Err(e))) => {
-                    log_error(&format!("{} 수집 실패 for {}: {}", key, proxy.host, e));
+                    let err_msg = format!("{} 수집 실패: {}", key, e);
+                    log_error(&format!("{} for {}", err_msg, proxy.host));
+                    error_messages.push(err_msg);
+                    collection_failed = true;
                 }
                 Ok(Err(e)) => {
-                    log_error(&format!("{} 태스크 실패 for {}: {}", key, proxy.host, e));
+                    let err_msg = format!("{} 태스크 실패: {}", key, e);
+                    log_error(&format!("{} for {}", err_msg, proxy.host));
+                    error_messages.push(err_msg);
+                    collection_failed = true;
                 }
                 Err(_) => {
-                    log_error(&format!("{} 수집 타임아웃 for {}", key, proxy.host));
+                    let err_msg = format!("{} 수집 타임아웃", key);
+                    log_error(&format!("{} for {}", err_msg, proxy.host));
+                    error_messages.push(err_msg);
+                    collection_failed = true;
                 }
             }
         }
@@ -292,7 +301,11 @@ impl ResourceCollector {
             interfaces,
             collected_at: Local::now(),
             collection_failed,
-            error_message,
+            error_message: if !error_messages.is_empty() {
+                Some(error_messages.join("; "))
+            } else {
+                None
+            },
         })
     }
 

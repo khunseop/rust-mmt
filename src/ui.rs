@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::app::{App, TabIndex};
+use std::collections::HashMap;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
@@ -102,6 +103,21 @@ fn draw_proxy_management(frame: &mut Frame, app: &mut App, area: Rect) {
         .block(Block::default().borders(Borders::ALL).title(format!("프록시 목록 ({}개)", app.proxies.len())))
     };
     frame.render_widget(proxy_table, chunks[1]);
+}
+
+/// 설정 파일에서 회선 목록을 읽어옵니다.
+fn get_interface_names() -> Vec<String> {
+    let config_path = "config/resource_config.json";
+    if let Ok(content) = std::fs::read_to_string(config_path) {
+        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(interface_oids) = config.get("interface_oids").and_then(|v| v.as_object()) {
+                let mut names: Vec<String> = interface_oids.keys().cloned().collect();
+                names.sort(); // 정렬하여 일관된 순서 유지
+                return names;
+            }
+        }
+    }
+    Vec::new()
 }
 
 fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -222,6 +238,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         control_chunks[4],
     );
 
+    // 회선 목록 가져오기
+    let interface_names = get_interface_names();
+    
     // 테이블 영역 - Python 앱과 동일한 구조
     let table = if app.resource_usage.data.is_empty() {
         // 데이터가 없을 때 빈 테이블
@@ -252,7 +271,8 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                         Style::default().fg(Color::Red)
                     };
 
-                    Row::new(vec![
+                    // 기본 컬럼 + 회선 컬럼들
+                    let mut cells = vec![
                         Cell::from(data.host.clone()).style(style),
                         Cell::from("실패").style(style),
                         Cell::from("실패").style(style),
@@ -261,8 +281,15 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                         Cell::from("실패").style(style),
                         Cell::from("실패").style(style),
                         Cell::from("실패").style(style),
-                        Cell::from(error_msg).style(style),
-                    ])
+                    ];
+                    
+                    // 각 회선에 대해 "실패" 셀 추가
+                    for _ in &interface_names {
+                        cells.push(Cell::from("실패").style(style));
+                    }
+                    
+                    cells.push(Cell::from(error_msg).style(style));
+                    Row::new(cells)
                 } else {
                     // 성공한 경우
                     let format_value = |v: Option<f64>| -> String {
@@ -278,15 +305,11 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                     let https_str = format_value(data.https);
                     let ftp_str = format_value(data.ftp);
                     
-                    // 회선 정보 (인터페이스)
-                    let interface_str = if data.interfaces.is_empty() {
-                        "N/A".to_string()
-                    } else {
-                        data.interfaces.iter()
-                            .map(|iface| format!("{}: {:.2}/{:.2}", iface.name, iface.in_mbps, iface.out_mbps))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    };
+                    // 회선 정보를 HashMap으로 변환 (빠른 조회를 위해)
+                    let interface_map: HashMap<String, (f64, f64)> = data.interfaces
+                        .iter()
+                        .map(|iface| (iface.name.clone(), (iface.in_mbps, iface.out_mbps)))
+                        .collect();
 
                     let style = if app.resource_usage.table_state.selected() == Some(i) {
                         Style::default().bg(Color::Blue)
@@ -294,7 +317,8 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                         Style::default()
                     };
 
-                    Row::new(vec![
+                    // 기본 컬럼들
+                    let mut cells = vec![
                         Cell::from(data.host.clone()).style(style),
                         Cell::from(cpu_str).style(style),
                         Cell::from(mem_str).style(style),
@@ -303,14 +327,27 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
                         Cell::from(http_str).style(style),
                         Cell::from(https_str).style(style),
                         Cell::from(ftp_str).style(style),
-                        Cell::from(interface_str).style(style),
-                    ])
+                    ];
+                    
+                    // 각 회선에 대해 별도 컬럼 추가
+                    for if_name in &interface_names {
+                        if let Some((in_mbps, out_mbps)) = interface_map.get(if_name) {
+                            cells.push(Cell::from(format!("{:.2}/{:.2}", in_mbps, out_mbps)).style(style));
+                        } else {
+                            cells.push(Cell::from("N/A").style(style));
+                        }
+                    }
+                    
+                    // 상태 컬럼
+                    cells.push(Cell::from("성공").style(style));
+                    
+                    Row::new(cells)
                 }
             })
             .collect();
 
-        // 컬럼 너비 설정 (프록시, CPU, MEM, CC, CS, HTTP, HTTPS, FTP, 회선)
-        Table::new(rows, [
+        // 컬럼 너비 설정
+        let mut constraints = vec![
             Constraint::Length(15),  // 프록시
             Constraint::Length(8),   // CPU
             Constraint::Length(8),   // MEM
@@ -319,9 +356,17 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(10),  // HTTP
             Constraint::Length(10),  // HTTPS
             Constraint::Length(10),  // FTP
-            Constraint::Min(0),      // 회선 정보 (나머지 공간)
-        ])
-        .header(Row::new(vec![
+        ];
+        
+        // 각 회선에 대해 컬럼 추가
+        for _ in &interface_names {
+            constraints.push(Constraint::Length(12)); // 각 회선 컬럼
+        }
+        
+        constraints.push(Constraint::Min(0)); // 상태 컬럼 (나머지 공간)
+        
+        // 헤더 생성
+        let mut header_cells = vec![
             Cell::from("프록시").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("CPU").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("MEM").style(Style::default().add_modifier(Modifier::BOLD)),
@@ -330,8 +375,17 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
             Cell::from("HTTP").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("HTTPS").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("FTP").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("회선정보").style(Style::default().add_modifier(Modifier::BOLD)),
-        ]))
+        ];
+        
+        // 각 회선에 대해 헤더 추가
+        for if_name in &interface_names {
+            header_cells.push(Cell::from(if_name.clone()).style(Style::default().add_modifier(Modifier::BOLD)));
+        }
+        
+        header_cells.push(Cell::from("상태").style(Style::default().add_modifier(Modifier::BOLD)));
+        
+        Table::new(rows, constraints)
+        .header(Row::new(header_cells))
         .block(Block::default().borders(Borders::ALL).title("자원 사용률 모니터링"))
         .highlight_style(Style::default().bg(Color::Blue))
         .highlight_symbol(">> ")

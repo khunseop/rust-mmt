@@ -1,8 +1,24 @@
 use crate::app::ResourceData;
 use anyhow::{Context, Result};
 use chrono::Local;
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+
+/// 설정 파일에서 회선 목록을 읽어옵니다.
+fn get_interface_names() -> Vec<String> {
+    let config_path = "config/resource_config.json";
+    if let Ok(content) = std::fs::read_to_string(config_path) {
+        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(interface_oids) = config.get("interface_oids").and_then(|v| v.as_object()) {
+                let mut names: Vec<String> = interface_oids.keys().cloned().collect();
+                names.sort(); // 정렬하여 일관된 순서 유지
+                return names;
+            }
+        }
+    }
+    Vec::new()
+}
 
 /// CSV 파일 작성기
 pub struct CsvWriter;
@@ -23,6 +39,9 @@ impl CsvWriter {
         // 파일이 존재하는지 확인
         let file_exists = filepath.exists();
         
+        // 회선 목록 가져오기
+        let interface_names = get_interface_names();
+        
         // CSV 작성 (append 모드)
         let mut wtr = if file_exists {
             // 파일이 있으면 append 모드로 열기
@@ -40,9 +59,18 @@ impl CsvWriter {
 
         // 헤더는 파일이 없을 때만 작성
         if !file_exists {
-            wtr.write_record(&[
-                "timestamp", "proxy_id", "host", "cpu", "mem", "cc", "cs", "http", "https", "ftp", "interfaces", "status"
-            ])
+            let mut header = vec![
+                "timestamp", "proxy_id", "host", "cpu", "mem", "cc", "cs", "http", "https", "ftp"
+            ];
+            
+            // 각 회선에 대해 컬럼 추가
+            for if_name in &interface_names {
+                header.push(if_name);
+            }
+            
+            header.push("status");
+            
+            wtr.write_record(&header)
                 .context("Failed to write CSV header")?;
         }
 
@@ -60,15 +88,11 @@ impl CsvWriter {
             let https_str = format_value(record.https);
             let ftp_str = format_value(record.ftp);
             
-            // 회선 정보
-            let interface_str = if record.interfaces.is_empty() {
-                "".to_string()
-            } else {
-                record.interfaces.iter()
-                    .map(|iface| format!("{}: {:.2}/{:.2}", iface.name, iface.in_mbps, iface.out_mbps))
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            };
+            // 회선 정보를 HashMap으로 변환 (빠른 조회를 위해)
+            let interface_map: HashMap<String, (f64, f64)> = record.interfaces
+                .iter()
+                .map(|iface| (iface.name.clone(), (iface.in_mbps, iface.out_mbps)))
+                .collect();
 
             let status = if record.collection_failed {
                 record.error_message.as_ref()
@@ -78,7 +102,8 @@ impl CsvWriter {
                 "성공"
             };
 
-            wtr.write_record(&[
+            // 기본 필드들
+            let mut record_fields = vec![
                 record.collected_at.format("%Y-%m-%d %H:%M:%S").to_string(),
                 record.proxy_id.to_string(),
                 record.host.clone(),
@@ -89,9 +114,20 @@ impl CsvWriter {
                 http_str,
                 https_str,
                 ftp_str,
-                interface_str,
-                status.to_string(),
-            ])
+            ];
+            
+            // 각 회선에 대해 값 추가 (In/Out 형식)
+            for if_name in &interface_names {
+                if let Some((in_mbps, out_mbps)) = interface_map.get(if_name) {
+                    record_fields.push(format!("{:.2}/{:.2}", in_mbps, out_mbps));
+                } else {
+                    record_fields.push("".to_string());
+                }
+            }
+            
+            record_fields.push(status.to_string());
+
+            wtr.write_record(&record_fields)
             .context("Failed to write CSV record")?;
         }
 
