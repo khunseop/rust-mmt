@@ -21,7 +21,7 @@ impl SshClient {
             port,
             username,
             password,
-            timeout: Duration::from_secs(5),
+            timeout: Duration::from_secs(15),
         }
     }
 
