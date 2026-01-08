@@ -134,12 +134,17 @@ impl SnmpClient {
         }
 
         // VarBind: SEQUENCE { OID, NULL }
-        let mut varbind = Vec::new();
-        varbind.extend(encode_oid(&oid_bytes)); // OID
-        varbind.extend(encode_null()); // NULL value
-        let varbind_encoded = encode_sequence(&varbind);
+        let mut varbind_content = Vec::new();
+        varbind_content.extend(encode_oid(&oid_bytes)); // OID
+        varbind_content.extend(encode_null()); // NULL value
+        let varbind_encoded = encode_sequence(&varbind_content);
 
         // VarBindList: SEQUENCE OF VarBind
+        // VarBindList는 VarBind들을 포함하는 SEQUENCE입니다
+        // varbind_encoded는 이미 완전한 BER 인코딩된 VarBind (SEQUENCE)입니다
+        // VarBindList는 이를 직접 포함하는 SEQUENCE여야 하므로,
+        // encode_sequence를 사용하여 SEQUENCE 태그와 길이를 추가합니다
+        // 결과: [0x30, len, [0x30, len, OID, NULL]]
         let varbind_list = encode_sequence(&varbind_encoded);
 
         // PDU: SEQUENCE { request-id, error-status, error-index, varbind-list }
@@ -166,6 +171,11 @@ impl SnmpClient {
         // 전체 메시지: SEQUENCE
         let mut message = Vec::new();
         message.extend(encode_sequence(&packet));
+
+        // 디버깅: 패킷 크기 확인
+        if message.len() > 1500 {
+            anyhow::bail!("SNMP packet too large: {} bytes", message.len());
+        }
 
         Ok(message)
     }
