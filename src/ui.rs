@@ -161,9 +161,8 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     let control_chunks = Layout::default()
         .direction(ratatui::layout::Direction::Horizontal)
         .constraints([
-            Constraint::Length(18), // 필터
+            Constraint::Length(18), // 그룹선택
             Constraint::Length(18), // 자동수집
-            Constraint::Length(18), // 즉시수집
             Constraint::Length(18), // 수집주기
             Constraint::Length(18), // 상태
             Constraint::Length(20), // 마지막수집
@@ -183,10 +182,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     
-    // 필터
+    // 그룹선택
     let group_name = app.resource_usage.get_group_display_name();
-    let filter_text = format!("{} (Shift+←/→)", group_name);
-    render_info_box(frame, "필터", &filter_text, Style::default().fg(Color::Cyan), control_chunks[0]);
+    render_info_box(frame, "그룹선택", &group_name, Style::default().fg(Color::Cyan), control_chunks[0]);
     
     // 자동수집
     let auto_status = if app.resource_usage.auto_collection_enabled {
@@ -210,19 +208,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     render_info_box(frame, "자동수집", &auto_status, auto_style, control_chunks[1]);
     
-    // 즉시수집
-    let instant_text = if app.resource_usage.collection_status == crate::app::CollectionStatus::Collecting
-        || app.resource_usage.collection_status == crate::app::CollectionStatus::Starting {
-        "수집중..."
-    } else {
-        "▶ 즉시수집 (Enter)"
-    };
-    render_info_box(frame, "즉시수집", instant_text, Style::default().fg(Color::Blue), control_chunks[2]);
-    
     // 수집주기
     let interval = app.resource_usage.get_interval_display();
-    let interval_text = format!("{} (+/-)", interval);
-    render_info_box(frame, "수집주기", &interval_text, Style::default().fg(Color::White), control_chunks[3]);
+    render_info_box(frame, "수집주기", &interval, Style::default().fg(Color::White), control_chunks[2]);
     
     // 상태
     let (status_text, status_color, elapsed_sec) = match app.resource_usage.collection_status {
@@ -245,7 +233,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         status_text
     };
-    render_info_box(frame, "상태", &status_display, Style::default().fg(status_color), control_chunks[4]);
+    render_info_box(frame, "상태", &status_display, Style::default().fg(status_color), control_chunks[3]);
 
     // 마지막 수집 시간
     let last_collection_text = if let Some(last_time) = app.resource_usage.last_collection_time {
@@ -255,7 +243,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "없음".to_string()
     };
-    render_info_box(frame, "마지막수집", &last_collection_text, Style::default().fg(Color::Cyan), control_chunks[5]);
+    render_info_box(frame, "마지막수집", &last_collection_text, Style::default().fg(Color::Cyan), control_chunks[4]);
 
     // 회선 목록 가져오기
     let interface_names = get_interface_names();
@@ -484,7 +472,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // 키보드 단축키 도움말 (컴팩트)
     let help_text = vec![
-        "Tab: 탭전환 | q/Esc: 종료 | ↑↓: 테이블이동 | Enter: 즉시수집 | Space: 자동수집토글 | +/-: 주기 | Shift+←→: 그룹",
+        "Tab: 탭전환 | q/Esc: 종료 | ↑↓: 테이블이동 | Space: 자동수집토글 | +/-: 주기 | Shift+←→: 그룹",
     ];
     frame.render_widget(
         Paragraph::new(help_text.join("\n"))

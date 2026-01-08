@@ -7,6 +7,7 @@
       "username": "admin",
       "password": "password123",
       "group": "프로덕션",
+      "alias": "프로덕션-서버1",
       "traffic_log_path": "/var/log/proxy.log"
     },
     {
@@ -16,6 +17,7 @@
       "username": "admin",
       "password": "password123",
       "group": "프로덕션",
+      "alias": "프로덕션-서버2",
       "traffic_log_path": "/var/log/proxy.log"
     }
   ]

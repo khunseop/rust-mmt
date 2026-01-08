@@ -323,7 +323,7 @@ impl ResourceCollector {
         Ok(ResourceData {
             proxy_id: proxy.id,
             host: proxy.host.clone(),
-            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
+            proxy_name: proxy.alias.clone().or_else(|| Some(format!("{}{}", proxy.group, proxy.id))),
             cpu,
             mem,
             cc,
@@ -380,7 +380,7 @@ impl ResourceCollector {
                         let failed_data = ResourceData {
                             proxy_id: proxy.id,
                             host: proxy.host.clone(),
-                            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
+                            proxy_name: proxy.alias.clone().or_else(|| Some(format!("{}{}", proxy.group, proxy.id))),
                             cpu: None,
                             mem: None,
                             cc: None,
@@ -403,7 +403,7 @@ impl ResourceCollector {
                         let failed_data = ResourceData {
                             proxy_id: proxy.id,
                             host: proxy.host.clone(),
-                            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
+                            proxy_name: proxy.alias.clone().or_else(|| Some(format!("{}{}", proxy.group, proxy.id))),
                             cpu: None,
                             mem: None,
                             cc: None,
@@ -426,7 +426,7 @@ impl ResourceCollector {
                         let failed_data = ResourceData {
                             proxy_id: proxy.id,
                             host: proxy.host.clone(),
-                            proxy_name: Some(format!("{}{}", proxy.group, proxy.id)),
+                            proxy_name: proxy.alias.clone().or_else(|| Some(format!("{}{}", proxy.group, proxy.id))),
                             cpu: None,
                             mem: None,
                             cc: None,

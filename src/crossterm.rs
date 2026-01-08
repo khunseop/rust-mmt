@@ -145,13 +145,7 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Enter => {
-                            // Enter로 즉시 수집 (테이블 모드에서만)
-                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
-                                && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
-                                && collection_task.is_none()
-                            {
-                                collection_task = Some(spawn_collection_task(app.clone(), &rt));
-                            }
+                            // Enter 키는 현재 사용하지 않음
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             app_guard.should_quit = true;

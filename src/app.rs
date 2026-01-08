@@ -51,6 +51,8 @@ pub struct Proxy {
     pub password: String,
     pub group: String,
     #[serde(default)]
+    pub alias: Option<String>,
+    #[serde(default)]
     pub traffic_log_path: Option<String>,
 }
 
@@ -119,8 +121,8 @@ pub struct ResourceUsageState {
     pub collection_status: CollectionStatus, // 수집 상태
     pub collection_progress: Option<(usize, usize)>, // (완료된 수, 전체 수)
     pub spinner_frame: usize, // 스피너 애니메이션 프레임
-    pub selected_control: Option<usize>, // 선택된 컨트롤 (None: 테이블, 0-5: 컨트롤 그리드)
-    // 컨트롤 그리드: 0:필터, 1:자동수집, 2:즉시수집 / 3:수집주기, 4:상태, 5:마지막수집
+    pub selected_control: Option<usize>, // 선택된 컨트롤 (None: 테이블, 0-4: 컨트롤 그리드)
+    // 컨트롤 그리드: 0:그룹선택, 1:자동수집, 2:수집주기, 3:상태, 4:마지막수집
     pub auto_collection_enabled: bool, // 자동 수집 활성화 여부
     pub next_auto_collection_time: Option<chrono::DateTime<chrono::Local>>, // 다음 자동 수집 예정 시간
     pub collection_start_time: Option<chrono::DateTime<chrono::Local>>, // 수집 시작 시간
