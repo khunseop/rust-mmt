@@ -216,25 +216,11 @@ impl ResourceUsageState {
 
     pub fn activate_control(&mut self) {
         match self.selected_control {
-            Some(0) => {
-                // 필터 - 그룹 변경 (Shift+←/→로 처리되므로 여기서는 아무것도 안 함)
-            }
             Some(1) => {
                 // 자동수집 - 토글
                 self.toggle_auto_collection();
             }
-            Some(2) => {
-                // 즉시수집 - 수집 시작 (실제 실행은 crossterm.rs에서 처리)
-            }
-            Some(3) => {
-                // 수집주기 - +/- 키로 변경 (여기서는 아무것도 안 함)
-            }
-            Some(4) => {
-                // 상태 - 정보만 표시
-            }
-            Some(5) => {
-                // 마지막수집 - 정보만 표시
-            }
+            // 다른 컨트롤들은 정보 표시용이거나 다른 키로 처리됨
             _ => {}
         }
     }
@@ -260,33 +246,31 @@ impl ResourceUsageState {
         }
     }
 
+    /// 수집 주기 증가 (10초 단위)
     pub fn increase_interval(&mut self) {
-        // 10초, 30초, 60초, 120초, 300초 순서로 증가
-        self.collection_interval_sec = match self.collection_interval_sec {
-            0..=9 => 10,
-            10..=29 => 30,
-            30..=59 => 60,
-            60..=119 => 120,
-            120..=299 => 300,
-            _ => 600, // 600초 이상이면 600초로
-        };
-        // 자동 수집이 활성화되어 있으면 다음 수집 시간 업데이트
-        if self.auto_collection_enabled {
-            self.update_next_auto_collection_time();
-        }
+        const INTERVALS: &[u64] = &[10, 30, 60, 120, 300, 600];
+        self.collection_interval_sec = INTERVALS
+            .iter()
+            .find(|&&interval| interval > self.collection_interval_sec)
+            .copied()
+            .unwrap_or(600);
+        self.update_interval_if_auto_enabled();
     }
 
+    /// 수집 주기 감소 (10초 단위)
     pub fn decrease_interval(&mut self) {
-        // 10초, 30초, 60초, 120초, 300초 순서로 감소
-        self.collection_interval_sec = match self.collection_interval_sec {
-            0..=10 => 10,
-            11..=30 => 10,
-            31..=60 => 30,
-            61..=120 => 60,
-            121..=300 => 120,
-            _ => 300,
-        };
-        // 자동 수집이 활성화되어 있으면 다음 수집 시간 업데이트
+        const INTERVALS: &[u64] = &[10, 30, 60, 120, 300, 600];
+        self.collection_interval_sec = INTERVALS
+            .iter()
+            .rev()
+            .find(|&&interval| interval < self.collection_interval_sec)
+            .copied()
+            .unwrap_or(10);
+        self.update_interval_if_auto_enabled();
+    }
+
+    /// 자동 수집이 활성화되어 있으면 다음 수집 시간 업데이트
+    fn update_interval_if_auto_enabled(&mut self) {
         if self.auto_collection_enabled {
             self.update_next_auto_collection_time();
         }
@@ -362,7 +346,7 @@ impl ResourceUsageState {
     }
 
     pub fn next(&mut self) {
-        let i = match self.table_state.selected() {
+        let next_idx = match self.table_state.selected() {
             Some(i) => {
                 if i >= self.data.len().saturating_sub(1) {
                     0
@@ -372,11 +356,11 @@ impl ResourceUsageState {
             }
             None => 0,
         };
-        self.table_state.select(Some(i));
+        self.table_state.select(Some(next_idx));
     }
 
     pub fn previous(&mut self) {
-        let i = match self.table_state.selected() {
+        let prev_idx = match self.table_state.selected() {
             Some(i) => {
                 if i == 0 {
                     self.data.len().saturating_sub(1)
@@ -386,7 +370,7 @@ impl ResourceUsageState {
             }
             None => 0,
         };
-        self.table_state.select(Some(i));
+        self.table_state.select(Some(prev_idx));
     }
 }
 
@@ -518,11 +502,8 @@ impl App {
     }
 
     pub fn on_tick(&mut self) {
-        // 스피너 애니메이션은 백그라운드 태스크에서 처리
-        // 여기서는 다른 주기적 작업만 수행
-        
-        // 자동 수집이 활성화되어 있고 다음 수집 시간이 되었는지 확인
-        // 실제 수집은 crossterm.rs의 이벤트 루프에서 처리
+        // 주기적 작업이 필요하면 여기에 추가
+        // 스피너 애니메이션과 자동 수집은 백그라운드 태스크에서 처리됨
     }
 
 
@@ -568,7 +549,6 @@ impl App {
 
     pub fn on_left(&mut self) {
         match self.current_tab {
-            TabIndex::ProxyManagement => {}
             TabIndex::ResourceUsage => {
                 match self.resource_usage.selected_control {
                     None => {
@@ -582,6 +562,7 @@ impl App {
                 }
             }
             _ => {
+                // 다른 탭에서는 탭 전환
                 self.current_tab = self.current_tab.previous();
             }
         }
@@ -589,7 +570,6 @@ impl App {
 
     pub fn on_right(&mut self) {
         match self.current_tab {
-            TabIndex::ProxyManagement => {}
             TabIndex::ResourceUsage => {
                 match self.resource_usage.selected_control {
                     None => {
@@ -603,6 +583,7 @@ impl App {
                 }
             }
             _ => {
+                // 다른 탭에서는 탭 전환
                 self.current_tab = self.current_tab.next();
             }
         }
@@ -629,16 +610,7 @@ impl App {
             '2' => self.current_tab = TabIndex::ResourceUsage,
             '3' => self.current_tab = TabIndex::SessionBrowser,
             '4' => self.current_tab = TabIndex::TrafficLogs,
-            '+' | '=' => {
-                if self.current_tab == TabIndex::ResourceUsage {
-                    self.resource_usage.increase_interval();
-                }
-            }
-            '-' | '_' => {
-                if self.current_tab == TabIndex::ResourceUsage {
-                    self.resource_usage.decrease_interval();
-                }
-            }
+            // +/- 키는 crossterm.rs에서 직접 처리
             _ => {}
         }
     }

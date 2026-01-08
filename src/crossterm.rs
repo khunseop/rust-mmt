@@ -18,6 +18,48 @@ use tokio::sync::Mutex;
 
 use crate::{app::App, ui};
 
+/// 수집 작업을 시작하는 헬퍼 함수
+fn spawn_collection_task(
+    app: Arc<tokio::sync::Mutex<App>>,
+    rt: &tokio::runtime::Runtime,
+) -> tokio::task::JoinHandle<()> {
+    let app_clone = app.clone();
+    rt.spawn(async move {
+        let mut app = app_clone.lock().await;
+        if let Err(e) = app.start_collection().await {
+            eprintln!("수집 실패: {}", e);
+        }
+    })
+}
+
+/// Enter 키 입력 처리
+fn handle_enter_key(
+    app_guard: &mut App,
+    collection_task: &mut Option<tokio::task::JoinHandle<()>>,
+    app: &Arc<tokio::sync::Mutex<App>>,
+    rt: &tokio::runtime::Runtime,
+) {
+    if let Some(control_idx) = app_guard.resource_usage.selected_control {
+        app_guard.resource_usage.activate_control();
+        
+        // 즉시수집 버튼(2)이 선택되었고 수집 가능한 상태면 수집 시작
+        if control_idx == 2
+            && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
+            && collection_task.is_none()
+        {
+            *collection_task = Some(spawn_collection_task(app.clone(), rt));
+        }
+    } else {
+        // 테이블 모드에서 Enter는 자동 수집 토글
+        if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle {
+            app_guard.resource_usage.toggle_auto_collection();
+            if app_guard.resource_usage.auto_collection_enabled && collection_task.is_none() {
+                *collection_task = Some(spawn_collection_task(app.clone(), rt));
+            }
+        }
+    }
+}
+
 pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
     // 터미널 설정
     enable_raw_mode()?;
@@ -124,58 +166,29 @@ fn run_app<B: Backend>(
                                 && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
                             {
                                 app_guard.resource_usage.toggle_auto_collection();
-                                
-                                // 자동 수집을 시작하면 즉시 첫 수집 실행
                                 if app_guard.resource_usage.auto_collection_enabled && collection_task.is_none() {
-                                    let app_clone = app.clone();
-                                    collection_task = Some(rt.spawn(async move {
-                                        let mut app = app_clone.lock().await;
-                                        if let Err(e) = app.start_collection().await {
-                                            eprintln!("수집 실패: {}", e);
-                                        }
-                                    }));
+                                    collection_task = Some(spawn_collection_task(app.clone(), &rt));
                                 }
                             }
                         }
                         KeyCode::Enter => {
                             // Enter로 선택된 컨트롤 활성화
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
-                                if let Some(control_idx) = app_guard.resource_usage.selected_control {
-                                    app_guard.resource_usage.activate_control();
-                                    
-                                    // 즉시수집 버튼(2)이 선택되었고 수집 가능한 상태면 수집 시작
-                                    if control_idx == 2
-                                        && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
-                                        && collection_task.is_none()
-                                    {
-                                        let app_clone = app.clone();
-                                        collection_task = Some(rt.spawn(async move {
-                                            let mut app = app_clone.lock().await;
-                                            if let Err(e) = app.start_collection().await {
-                                                eprintln!("수집 실패: {}", e);
-                                            }
-                                        }));
-                                    }
-                                } else {
-                                    // 테이블 모드에서 Enter는 자동 수집 토글
-                                    if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle {
-                                        app_guard.resource_usage.toggle_auto_collection();
-                                        
-                                        if app_guard.resource_usage.auto_collection_enabled && collection_task.is_none() {
-                                            let app_clone = app.clone();
-                                            collection_task = Some(rt.spawn(async move {
-                                                let mut app = app_clone.lock().await;
-                                                if let Err(e) = app.start_collection().await {
-                                                    eprintln!("수집 실패: {}", e);
-                                                }
-                                            }));
-                                        }
-                                    }
-                                }
+                                handle_enter_key(&mut app_guard, &mut collection_task, &app, &rt);
                             }
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             app_guard.should_quit = true;
+                        }
+                        KeyCode::Char('+') | KeyCode::Char('=') => {
+                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
+                                app_guard.resource_usage.increase_interval();
+                            }
+                        }
+                        KeyCode::Char('-') | KeyCode::Char('_') => {
+                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
+                                app_guard.resource_usage.decrease_interval();
+                            }
                         }
                         KeyCode::Char(c) => app_guard.on_key(c),
                         KeyCode::Esc => app_guard.should_quit = true,
@@ -217,14 +230,7 @@ fn run_app<B: Backend>(
             let app_guard = rt.block_on(app.lock());
             if app_guard.resource_usage.should_trigger_auto_collection() && collection_task.is_none() {
                 drop(app_guard);
-                // 자동 수집 실행
-                let app_clone = app.clone();
-                collection_task = Some(rt.spawn(async move {
-                    let mut app = app_clone.lock().await;
-                    if let Err(e) = app.start_collection().await {
-                        eprintln!("자동 수집 실패: {}", e);
-                    }
-                }));
+                collection_task = Some(spawn_collection_task(app.clone(), &rt));
             }
         }
 
