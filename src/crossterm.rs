@@ -32,33 +32,6 @@ fn spawn_collection_task(
     })
 }
 
-/// Enter 키 입력 처리
-fn handle_enter_key(
-    app_guard: &mut App,
-    collection_task: &mut Option<tokio::task::JoinHandle<()>>,
-    app: &Arc<tokio::sync::Mutex<App>>,
-    rt: &tokio::runtime::Runtime,
-) {
-    if let Some(control_idx) = app_guard.resource_usage.selected_control {
-        app_guard.resource_usage.activate_control();
-        
-        // 즉시수집 버튼(2)이 선택되었고 수집 가능한 상태면 수집 시작
-        if control_idx == 2
-            && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
-            && collection_task.is_none()
-        {
-            *collection_task = Some(spawn_collection_task(app.clone(), rt));
-        }
-    } else {
-        // 테이블 모드에서 Enter는 자동 수집 토글
-        if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle {
-            app_guard.resource_usage.toggle_auto_collection();
-            if app_guard.resource_usage.auto_collection_enabled && collection_task.is_none() {
-                *collection_task = Some(spawn_collection_task(app.clone(), rt));
-            }
-        }
-    }
-}
 
 pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
     // 터미널 설정
@@ -172,9 +145,12 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Enter => {
-                            // Enter로 선택된 컨트롤 활성화
-                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
-                                handle_enter_key(&mut app_guard, &mut collection_task, &app, &rt);
+                            // Enter로 즉시 수집 (테이블 모드에서만)
+                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
+                                && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
+                                && collection_task.is_none()
+                            {
+                                collection_task = Some(spawn_collection_task(app.clone(), &rt));
                             }
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {

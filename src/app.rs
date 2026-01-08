@@ -511,16 +511,9 @@ impl App {
         match self.current_tab {
             TabIndex::ProxyManagement => {}
             TabIndex::ResourceUsage => {
-                match self.resource_usage.selected_control {
-                    None => {
-                        // 테이블 모드: 테이블 행 이동
-                        self.resource_usage.previous();
-                    }
-                    Some(_) => {
-                        // 컨트롤 모드: 위로 이동
-                        self.resource_usage.move_control_up();
-                    }
-                }
+                // 컨트롤 선택 기능 제거, 항상 테이블 모드
+                self.resource_usage.selected_control = None;
+                self.resource_usage.previous();
             }
             TabIndex::SessionBrowser => self.session_browser.previous(),
             TabIndex::TrafficLogs => {}
@@ -531,16 +524,9 @@ impl App {
         match self.current_tab {
             TabIndex::ProxyManagement => {}
             TabIndex::ResourceUsage => {
-                match self.resource_usage.selected_control {
-                    None => {
-                        // 테이블 모드: 첫 번째 컨트롤로 이동
-                        self.resource_usage.selected_control = Some(0);
-                    }
-                    Some(_) => {
-                        // 컨트롤 모드: 아래로 이동
-                        self.resource_usage.move_control_down();
-                    }
-                }
+                // 컨트롤 선택 기능 제거, 항상 테이블 모드
+                self.resource_usage.selected_control = None;
+                self.resource_usage.next();
             }
             TabIndex::SessionBrowser => self.session_browser.next(),
             TabIndex::TrafficLogs => {}
@@ -548,45 +534,13 @@ impl App {
     }
 
     pub fn on_left(&mut self) {
-        match self.current_tab {
-            TabIndex::ResourceUsage => {
-                match self.resource_usage.selected_control {
-                    None => {
-                        // 테이블 모드: 탭 전환
-                        self.current_tab = self.current_tab.previous();
-                    }
-                    Some(_) => {
-                        // 컨트롤 모드: 왼쪽으로 이동
-                        self.resource_usage.move_control_left();
-                    }
-                }
-            }
-            _ => {
-                // 다른 탭에서는 탭 전환
-                self.current_tab = self.current_tab.previous();
-            }
-        }
+        // 모든 탭에서 탭 전환
+        self.current_tab = self.current_tab.previous();
     }
 
     pub fn on_right(&mut self) {
-        match self.current_tab {
-            TabIndex::ResourceUsage => {
-                match self.resource_usage.selected_control {
-                    None => {
-                        // 테이블 모드: 탭 전환
-                        self.current_tab = self.current_tab.next();
-                    }
-                    Some(_) => {
-                        // 컨트롤 모드: 오른쪽으로 이동
-                        self.resource_usage.move_control_right();
-                    }
-                }
-            }
-            _ => {
-                // 다른 탭에서는 탭 전환
-                self.current_tab = self.current_tab.next();
-            }
-        }
+        // 모든 탭에서 탭 전환
+        self.current_tab = self.current_tab.next();
     }
 
     pub fn on_group_next(&mut self) {

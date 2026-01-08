@@ -151,80 +151,49 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
         .constraints([
-            Constraint::Length(7),  // 컨트롤 영역 (2줄, 각 3줄)
+            Constraint::Length(3),  // 컨트롤 영역 (한 줄)
             Constraint::Min(3),     // 데이터 테이블
             Constraint::Length(4),  // 키보드 단축키 도움말 (컴팩트)
         ])
         .split(area);
 
-    // 컨트롤 영역을 2x3 그리드로 구성
-    let control_rows = Layout::default()
-        .direction(ratatui::layout::Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Length(3)])
+    // 컨트롤 영역을 한 줄로 구성 (선택 불가능)
+    let control_chunks = Layout::default()
+        .direction(ratatui::layout::Direction::Horizontal)
+        .constraints([
+            Constraint::Length(18), // 필터
+            Constraint::Length(18), // 자동수집
+            Constraint::Length(18), // 즉시수집
+            Constraint::Length(18), // 수집주기
+            Constraint::Length(18), // 상태
+            Constraint::Length(20), // 마지막수집
+            Constraint::Min(0),     // 나머지
+        ])
         .split(chunks[0]);
-    
-    // 첫 번째 줄: 필터, 자동수집, 즉시수집
-    let control_row1 = Layout::default()
-        .direction(ratatui::layout::Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-        ])
-        .split(control_rows[0]);
-    
-    // 두 번째 줄: 수집주기, 상태, 마지막수집
-    let control_row2 = Layout::default()
-        .direction(ratatui::layout::Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-        ])
-        .split(control_rows[1]);
     
     use ratatui::widgets::Paragraph;
     
-    // 컨트롤 렌더링 헬퍼 함수
-    // use_selected_color: true면 선택되었을 때 노란색으로 표시, false면 default_style 유지
-    fn render_control(frame: &mut Frame, idx: usize, title: &str, content: &str, default_style: Style, area: Rect, selected_control: Option<usize>, use_selected_color: bool) {
-        let is_selected = selected_control == Some(idx);
-        let border_style = if is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        
-        // 선택되었을 때 색상 처리
-        let content_style = if is_selected && use_selected_color {
-            // 선택되었고 use_selected_color가 true면 노란색으로 표시
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-        } else {
-            // 선택되지 않았거나 use_selected_color가 false면 default_style 사용
-            default_style
-        };
-        
+    // 컨트롤 렌더링 헬퍼 함수 (선택 불가능, 정보 표시만)
+    fn render_info_box(frame: &mut Frame, title: &str, content: &str, style: Style, area: Rect) {
         frame.render_widget(
             Paragraph::new(content)
-                .block(Block::default().borders(Borders::ALL).title(title).border_style(border_style))
-                .style(content_style),
+                .block(Block::default().borders(Borders::ALL).title(title))
+                .style(style),
             area,
         );
     }
     
-    let selected = app.resource_usage.selected_control;
-    
-    // 0: 필터
+    // 필터
     let group_name = app.resource_usage.get_group_display_name();
-    let group_text = format!("{}\nShift+←/→", group_name);
-    render_control(frame, 0, "필터", &group_text, Style::default().fg(Color::Cyan), control_row1[0], selected, true);
+    let filter_text = format!("{} (Shift+←/→)", group_name);
+    render_info_box(frame, "필터", &filter_text, Style::default().fg(Color::Cyan), control_chunks[0]);
     
-    // 1: 자동수집
+    // 자동수집
     let auto_status = if app.resource_usage.auto_collection_enabled {
         if let Some(next_time) = app.resource_usage.next_auto_collection_time {
             let remaining = (next_time - chrono::Local::now()).num_seconds();
             if remaining > 0 {
-                format!("🔄 ON\n{}초 후", remaining)
+                format!("🔄 ON ({}초 후)", remaining)
             } else {
                 "🔄 ON".to_string()
             }
@@ -234,30 +203,28 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "▶ OFF".to_string()
     };
-    // 자동수집: 선택되지 않았을 때는 상태에 따라 색상 변경 (켜져있으면 초록색, 꺼져있으면 회색)
-    // 선택되었을 때는 노란색으로 표시 (use_selected_color=true)
     let auto_style = if app.resource_usage.auto_collection_enabled {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::Gray)
     };
-    render_control(frame, 1, "자동수집", &auto_status, auto_style, control_row1[1], selected, true);
+    render_info_box(frame, "자동수집", &auto_status, auto_style, control_chunks[1]);
     
-    // 2: 즉시수집
+    // 즉시수집
     let instant_text = if app.resource_usage.collection_status == crate::app::CollectionStatus::Collecting
         || app.resource_usage.collection_status == crate::app::CollectionStatus::Starting {
         "수집중..."
     } else {
-        "▶ 즉시수집"
+        "▶ 즉시수집 (Enter)"
     };
-    render_control(frame, 2, "즉시수집", instant_text, Style::default().fg(Color::Blue), control_row1[2], selected, true);
+    render_info_box(frame, "즉시수집", instant_text, Style::default().fg(Color::Blue), control_chunks[2]);
     
-    // 3: 수집주기
+    // 수집주기
     let interval = app.resource_usage.get_interval_display();
-    let interval_text = format!("{}\n+/-: 변경", interval);
-    render_control(frame, 3, "수집주기", &interval_text, Style::default().fg(Color::White), control_row2[0], selected, true);
+    let interval_text = format!("{} (+/-)", interval);
+    render_info_box(frame, "수집주기", &interval_text, Style::default().fg(Color::White), control_chunks[3]);
     
-    // 4: 상태
+    // 상태
     let (status_text, status_color, elapsed_sec) = match app.resource_usage.collection_status {
         crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray, None),
         crate::app::CollectionStatus::Starting => ("시작중".to_string(), Color::Yellow, None),
@@ -265,7 +232,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
             let elapsed = app.resource_usage.collection_start_time
                 .map(|start| (chrono::Local::now() - start).num_seconds());
             if let Some((completed, total)) = app.resource_usage.collection_progress {
-                (format!("수집중\n{}/{}", completed, total), Color::Yellow, elapsed)
+                (format!("수집중 ({}/{})", completed, total), Color::Yellow, elapsed)
             } else {
                 ("수집중".to_string(), Color::Yellow, elapsed)
             }
@@ -278,9 +245,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         status_text
     };
-    render_control(frame, 4, "상태", &status_display, Style::default().fg(status_color), control_row2[1], selected, false);
+    render_info_box(frame, "상태", &status_display, Style::default().fg(status_color), control_chunks[4]);
 
-    // 5: 마지막 수집 시간
+    // 마지막 수집 시간
     let last_collection_text = if let Some(last_time) = app.resource_usage.last_collection_time {
         format!("{}\n{}", 
             last_time.format("%H:%M:%S"),
@@ -288,7 +255,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "없음".to_string()
     };
-    render_control(frame, 5, "마지막수집", &last_collection_text, Style::default().fg(Color::Cyan), control_row2[2], selected, true);
+    render_info_box(frame, "마지막수집", &last_collection_text, Style::default().fg(Color::Cyan), control_chunks[5]);
 
     // 회선 목록 가져오기
     let interface_names = get_interface_names();
@@ -461,9 +428,9 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(6),   // FTP (bps)
         ];
         
-        // 각 회선에 대해 컬럼 추가 (컴팩트하게)
+        // 각 회선에 대해 컬럼 추가 (너비 증가로 잘림 방지)
         for _ in &interface_names {
-            constraints.push(Constraint::Length(9)); // 각 회선 컬럼 (in/out bps)
+            constraints.push(Constraint::Length(12)); // 각 회선 컬럼 (in/out bps) - 9에서 12로 증가
         }
         
         constraints.push(Constraint::Length(3)); // 상태 컬럼
@@ -517,7 +484,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // 키보드 단축키 도움말 (컴팩트)
     let help_text = vec![
-        "Tab: 탭전환 | q/Esc: 종료 | ↑↓←→: 이동 | Enter: 실행 | +/-: 주기 | Shift+←→: 그룹",
+        "Tab: 탭전환 | q/Esc: 종료 | ↑↓: 테이블이동 | Enter: 즉시수집 | Space: 자동수집토글 | +/-: 주기 | Shift+←→: 그룹",
     ];
     frame.render_widget(
         Paragraph::new(help_text.join("\n"))
