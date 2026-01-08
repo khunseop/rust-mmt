@@ -41,15 +41,45 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 }
 
 fn draw_proxy_management(frame: &mut Frame, app: &mut App, area: Rect) {
+    // 통계 정보 영역과 테이블 영역으로 분할
     let chunks = Layout::default()
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),  // 통계 정보 영역
+            Constraint::Min(0),     // 프록시 목록 테이블
+        ])
         .split(area);
 
-    // 헤더 영역
-    let header = Block::default()
-        .borders(Borders::ALL)
-        .title("프록시 관리");
-    frame.render_widget(header, chunks[0]);
+    // 통계 정보 영역
+    let stats_chunks = Layout::default()
+        .direction(ratatui::layout::Direction::Horizontal)
+        .constraints([
+            Constraint::Length(20), // 전체 프록시 수
+            Constraint::Length(20), // 그룹 수
+            Constraint::Min(0),     // 나머지
+        ])
+        .split(chunks[0]);
+
+    use ratatui::widgets::Paragraph;
+    
+    // 전체 프록시 수
+    let total_count = app.proxies.len();
+    frame.render_widget(
+        Paragraph::new(format!("전체 프록시: {}개", total_count))
+            .block(Block::default().borders(Borders::ALL).title("통계"))
+            .style(Style::default().fg(Color::Cyan)),
+        stats_chunks[0],
+    );
+
+    // 그룹 수
+    use std::collections::HashSet;
+    let group_count: HashSet<String> = app.proxies.iter().map(|p| p.group.clone()).collect();
+    frame.render_widget(
+        Paragraph::new(format!("그룹 수: {}개", group_count.len()))
+            .block(Block::default().borders(Borders::ALL).title("그룹"))
+            .style(Style::default().fg(Color::Green)),
+        stats_chunks[1],
+    );
 
     // 프록시 목록 테이블
     let proxy_table = if app.proxies.is_empty() {
@@ -59,48 +89,86 @@ fn draw_proxy_management(frame: &mut Frame, app: &mut App, area: Rect) {
         )
         .block(Block::default().borders(Borders::ALL).title("프록시 목록"))
     } else {
-        // 그룹별로 프록시 그룹화
+        // 그룹별로 프록시 그룹화 및 정렬
         use std::collections::HashMap;
         let mut groups: HashMap<String, Vec<&crate::app::Proxy>> = HashMap::new();
         for proxy in &app.proxies {
             groups.entry(proxy.group.clone()).or_insert_with(Vec::new).push(proxy);
         }
 
+        // 그룹명으로 정렬
+        let mut sorted_groups: Vec<_> = groups.iter().collect();
+        sorted_groups.sort_by_key(|(group, _)| group.clone());
+
         let mut rows = Vec::new();
-        for (group, proxies) in &groups {
-            // 그룹 헤더
+        for (group, proxies) in sorted_groups {
+            // 그룹별로 프록시 ID로 정렬
+            let mut sorted_proxies = proxies.clone();
+            sorted_proxies.sort_by_key(|p| p.id);
+
+            // 그룹 헤더 행
             rows.push(Row::new(vec![
                 Cell::from(format!("📁 {}", group))
                     .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Cell::from(""),
-                Cell::from(""),
-                Cell::from(""),
+                Cell::from("")
+                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Cell::from("")
+                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Cell::from("")
+                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Cell::from(format!("({}개)", sorted_proxies.len()))
+                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ]));
 
             // 그룹 내 프록시들
-            for proxy in proxies {
+            for proxy in sorted_proxies {
+                let alias_display = proxy.alias.as_ref()
+                    .map(|a| a.as_str())
+                    .unwrap_or("-");
+                
+                let host_port = format!("{}:{}", proxy.host, proxy.port);
+                
+                let log_path_display = proxy.traffic_log_path.as_ref()
+                    .map(|p| {
+                        // 경로가 너무 길면 마지막 부분만 표시
+                        if p.len() > 30 {
+                            format!("...{}", &p[p.len().saturating_sub(27)..])
+                        } else {
+                            p.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "-".to_string());
+
                 rows.push(Row::new(vec![
-                    Cell::from(format!("  └─ {}", proxy.host)),
-                    Cell::from(format!(":{}", proxy.port)),
-                    Cell::from(proxy.username.clone()),
-                    Cell::from(proxy.group.clone()),
+                    Cell::from(format!("  ├─ ID: {}", proxy.id))
+                        .style(Style::default().fg(Color::Gray)),
+                    Cell::from(alias_display)
+                        .style(Style::default().fg(Color::White)),
+                    Cell::from(host_port)
+                        .style(Style::default().fg(Color::Cyan)),
+                    Cell::from(proxy.username.clone())
+                        .style(Style::default().fg(Color::White)),
+                    Cell::from(log_path_display)
+                        .style(Style::default().fg(Color::Gray)),
                 ]));
             }
         }
 
         Table::new(rows, [
-            Constraint::Percentage(35),
-            Constraint::Percentage(15),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
+            Constraint::Length(12),  // ID
+            Constraint::Length(20),  // 별칭
+            Constraint::Length(22),  // 호스트:포트
+            Constraint::Length(15), // 사용자
+            Constraint::Min(0),      // 로그 경로 (나머지 공간)
         ])
         .header(Row::new(vec![
-            Cell::from("호스트").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("포트").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("ID/그룹").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("별칭").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("호스트:포트").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("사용자").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("그룹").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("로그 경로").style(Style::default().add_modifier(Modifier::BOLD)),
         ]))
-        .block(Block::default().borders(Borders::ALL).title(format!("프록시 목록 ({}개)", app.proxies.len())))
+        .block(Block::default().borders(Borders::ALL).title(format!("프록시 목록 (총 {}개)", app.proxies.len())))
     };
     frame.render_widget(proxy_table, chunks[1]);
 }
@@ -314,7 +382,7 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         // 데이터가 없을 때 빈 테이블
         Table::new(
             vec![Row::new(vec![
-                Cell::from("데이터가 없습니다. 시작 버튼을 눌러 수집하세요."),
+                Cell::from("데이터가 없습니다. Space를 눌러 수집하세요."),
             ])],
             [Constraint::Percentage(100)],
         )
