@@ -18,41 +18,6 @@ use tokio::sync::Mutex;
 
 use crate::{app::App, ui};
 
-#[cfg(windows)]
-fn setup_windows_console() -> Result<(), Box<dyn Error>> {
-    use winapi::shared::minwindef::DWORD;
-    use winapi::um::consoleapi::{GetConsoleMode, SetConsoleMode};
-    use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-    use winapi::um::processenv::GetStdHandle;
-    use winapi::um::wincon::{ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE};
-    use winapi::um::winnls::{SetConsoleCP, SetConsoleOutputCP, CP_UTF8};
-    
-    unsafe {
-        // UTF-8 코드 페이지 설정
-        // 이렇게 하면 cmd.exe에서도 한글이 제대로 표시됩니다
-        SetConsoleOutputCP(CP_UTF8);
-        SetConsoleCP(CP_UTF8);
-        
-        // ANSI 이스케이프 시퀀스 지원 활성화 (Windows 10 이상)
-        // 이렇게 하면 cmd.exe에서도 색상이 제대로 표시됩니다
-        let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-        if stdout_handle != INVALID_HANDLE_VALUE {
-            let mut mode: DWORD = 0;
-            if GetConsoleMode(stdout_handle, &mut mode) != 0 {
-                // ENABLE_VIRTUAL_TERMINAL_PROCESSING 플래그 추가
-                let new_mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-                SetConsoleMode(stdout_handle, new_mode);
-            }
-        }
-    }
-    
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn setup_windows_console() -> Result<(), Box<dyn Error>> {
-    Ok(())
-}
 
 /// 수집 작업을 시작하는 헬퍼 함수
 fn spawn_collection_task(
@@ -68,11 +33,7 @@ fn spawn_collection_task(
     })
 }
 
-
 pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
-    // Windows 콘솔 설정 (UTF-8 코드 페이지 설정)
-    setup_windows_console()?;
-    
     // 터미널 설정
     enable_raw_mode()?;
     let mut stdout = io::stdout();
