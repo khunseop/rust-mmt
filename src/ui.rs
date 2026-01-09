@@ -777,47 +777,73 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
                     Style::default()
                 };
 
-                // URL이 너무 길면 잘라서 표시
-                let url_display = session
-                    .url
-                    .as_ref()
-                    .map(|s| {
-                        if s.len() > 50 {
-                            format!("{}...", &s[..47])
-                        } else {
-                            s.clone()
-                        }
-                    })
+                // 모든 필드 준비
+                let transaction = session.transaction.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let creation_time = session.creation_time
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| "N/A".to_string());
+                let protocol = session.protocol.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let client_ip = session.client_ip.clone();
+                let server_ip = session.server_ip.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let url_display = session.url.as_ref().map(|s| {
+                    if s.len() > 60 {
+                        format!("{}...", &s[..57])
+                    } else {
+                        s.clone()
+                    }
+                }).unwrap_or_else(|| "N/A".to_string());
 
-                Row::new(vec![
+                // 모든 컬럼 데이터
+                let all_cells = vec![
                     Cell::from(session.host.clone()).style(style),
-                    Cell::from(session.client_ip.clone()).style(style),
+                    Cell::from(transaction).style(style),
+                    Cell::from(creation_time.clone()).style(style),
+                    Cell::from(protocol).style(style),
+                    Cell::from(client_ip.clone()).style(style),
+                    Cell::from(server_ip).style(style),
                     Cell::from(url_display).style(style),
-                    Cell::from(
-                        session
-                            .protocol
-                            .as_ref()
-                            .map(|s| s.as_str())
-                            .unwrap_or("N/A"),
-                    )
-                    .style(style),
-                ])
+                ];
+
+                // 컬럼 오프셋에 따라 표시할 컬럼 선택
+                let start_idx = app.session_browser.column_offset.min(all_cells.len());
+                let end_idx = (start_idx + 7).min(all_cells.len()); // 최대 7개 컬럼 표시
+                let visible_cells = if start_idx < all_cells.len() {
+                    all_cells[start_idx..end_idx].to_vec()
+                } else {
+                    vec![Cell::from("").style(style)]
+                };
+
+                Row::new(visible_cells)
             })
             .collect();
 
-        Table::new(rows, [
-            Constraint::Length(20),  // 호스트
-            Constraint::Length(18),   // 클라이언트IP
-            Constraint::Min(20),      // URL (나머지 공간)
-            Constraint::Length(10),   // 프로토콜
-        ])
-        .header(Row::new(vec![
-            Cell::from("호스트").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("클라이언트IP").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("URL").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from("프로토콜").style(Style::default().add_modifier(Modifier::BOLD)),
-        ]))
+        // 컬럼 정의 (모든 컬럼)
+        let all_columns = vec![
+            ("호스트", Constraint::Length(18)),
+            ("트랜잭션", Constraint::Length(15)),
+            ("생성시간", Constraint::Length(19)),
+            ("프로토콜", Constraint::Length(10)),
+            ("클라이언트IP", Constraint::Length(18)),
+            ("서버IP", Constraint::Length(18)),
+            ("URL", Constraint::Min(30)),
+        ];
+
+        // 표시할 컬럼 선택
+        let start_idx = app.session_browser.column_offset.min(all_columns.len());
+        let end_idx = (start_idx + 7).min(all_columns.len());
+        let visible_columns = if start_idx < all_columns.len() {
+            &all_columns[start_idx..end_idx]
+        } else {
+            &[]
+        };
+
+        let constraints: Vec<Constraint> = visible_columns.iter().map(|(_, c)| *c).collect();
+        let header_cells: Vec<Cell> = visible_columns.iter().map(|(name, _)| {
+            Cell::from(*name).style(Style::default().add_modifier(Modifier::BOLD))
+        }).collect();
+
+        Table::new(rows, constraints)
+        .header(Row::new(header_cells))
         .block(Block::default().borders(Borders::ALL).title(format!(
             "세션 목록 (총 {}개)",
             filtered_sessions.len()
@@ -829,8 +855,11 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(table, chunks[1], &mut app.session_browser.table_state);
 
     // 키보드 단축키 도움말
+    let total_columns = 7;
+    let current_col = app.session_browser.column_offset + 1;
     let help_text = vec![
-        "Tab: 탭전환 | q/Esc: 종료 | ↑↓: 테이블이동 | Shift+←→: 그룹선택 | S: 세션조회",
+        format!("Tab: 탭전환 | q/Esc: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회", 
+            current_col, total_columns),
     ];
     frame.render_widget(
         Paragraph::new(help_text.join("\n"))

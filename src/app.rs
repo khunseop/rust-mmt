@@ -392,6 +392,7 @@ pub struct SessionBrowserState {
     pub last_error: Option<String>, // 마지막 에러 메시지
     pub query_start_time: Option<chrono::DateTime<chrono::Local>>,
     pub spinner_frame: usize, // 스피너 애니메이션 프레임
+    pub column_offset: usize, // 가로 스크롤 오프셋 (표시할 첫 번째 컬럼 인덱스)
 }
 
 impl SessionBrowserState {
@@ -408,7 +409,19 @@ impl SessionBrowserState {
             last_error: None,
             query_start_time: None,
             spinner_frame: 0,
+            column_offset: 0,
         }
+    }
+
+    /// 컬럼 오프셋 증가 (오른쪽으로 스크롤)
+    pub fn scroll_right(&mut self) {
+        // 최대 컬럼 수는 동적으로 계산되므로 여기서는 제한 없이 증가
+        self.column_offset = self.column_offset.saturating_add(1);
+    }
+
+    /// 컬럼 오프셋 감소 (왼쪽으로 스크롤)
+    pub fn scroll_left(&mut self) {
+        self.column_offset = self.column_offset.saturating_sub(1);
     }
 
     pub fn update_groups(&mut self, proxies: &[Proxy]) {
