@@ -165,23 +165,9 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Enter => {
-                            // Enter 키 처리
+                            // Enter 키는 항상 상세보기 모달 토글
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
-                                if app_guard.session_browser.selected_column.is_some() {
-                                    // 컬럼이 선택되어 있으면 정렬 토글
-                                    app_guard.session_browser.toggle_sort();
-                                    // 정렬 후 세션 목록 재정렬
-                                    let sort_col = app_guard.session_browser.sort_column;
-                                    let sort_asc = app_guard.session_browser.sort_ascending;
-                                    crate::app::App::sort_sessions(
-                                        &mut app_guard.session_browser.sessions,
-                                        sort_col,
-                                        sort_asc
-                                    );
-                                } else {
-                                    // 행 선택 모드: 상세보기 모달 토글
-                                    app_guard.session_browser.toggle_detail_modal();
-                                }
+                                app_guard.session_browser.toggle_detail_modal();
                             }
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
@@ -204,28 +190,45 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Char('s') | KeyCode::Char('S') => {
-                            // S 키로 세션 조회 시작
-                            let should_query = app_guard.current_tab == crate::app::TabIndex::SessionBrowser
-                                && app_guard.session_browser.query_status != crate::app::CollectionStatus::Collecting;
-                            
-                            if should_query {
-                                // 조회 시작 상태로 즉시 변경
-                                app_guard.session_browser.query_status = crate::app::CollectionStatus::Starting;
-                                app_guard.session_browser.query_start_time = Some(chrono::Local::now());
-                                
-                                let app_clone = app.clone();
-                                drop(app_guard);
-                                rt.spawn(async move {
-                                    let mut app_guard = app_clone.lock().await;
-                                    if let Err(e) = app_guard.start_session_query().await {
-                                        eprintln!("세션 조회 실패: {}", e);
-                                        app_guard.session_browser.query_status = crate::app::CollectionStatus::Failed;
-                                        app_guard.session_browser.last_error = Some(format!("{}", e));
-                                        app_guard.session_browser.query_start_time = None;
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                // Shift+S는 정렬, S는 세션 조회
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                                    // Shift+S: 정렬 토글 (컬럼이 선택되어 있을 때)
+                                    if app_guard.session_browser.selected_column.is_some() {
+                                        app_guard.session_browser.toggle_sort();
+                                        // 정렬 후 세션 목록 재정렬
+                                        let sort_col = app_guard.session_browser.sort_column;
+                                        let sort_asc = app_guard.session_browser.sort_ascending;
+                                        crate::app::App::sort_sessions(
+                                            &mut app_guard.session_browser.sessions,
+                                            sort_col,
+                                            sort_asc
+                                        );
                                     }
-                                });
-                                // app_guard가 drop되었으므로 다시 lock 필요
-                                app_guard = rt.block_on(app.lock());
+                                } else {
+                                    // S: 세션 조회 시작
+                                    let should_query = app_guard.session_browser.query_status != crate::app::CollectionStatus::Collecting;
+                                    
+                                    if should_query {
+                                        // 조회 시작 상태로 즉시 변경
+                                        app_guard.session_browser.query_status = crate::app::CollectionStatus::Starting;
+                                        app_guard.session_browser.query_start_time = Some(chrono::Local::now());
+                                        
+                                        let app_clone = app.clone();
+                                        drop(app_guard);
+                                        rt.spawn(async move {
+                                            let mut app_guard = app_clone.lock().await;
+                                            if let Err(e) = app_guard.start_session_query().await {
+                                                eprintln!("세션 조회 실패: {}", e);
+                                                app_guard.session_browser.query_status = crate::app::CollectionStatus::Failed;
+                                                app_guard.session_browser.last_error = Some(format!("{}", e));
+                                                app_guard.session_browser.query_start_time = None;
+                                            }
+                                        });
+                                        // app_guard가 drop되었으므로 다시 lock 필요
+                                        app_guard = rt.block_on(app.lock());
+                                    }
+                                }
                             }
                         }
                         KeyCode::Char(c) => {
@@ -236,10 +239,17 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Esc => {
-                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
-                                && app_guard.session_browser.show_detail_modal {
-                                // 모달이 열려있으면 모달만 닫기
-                                app_guard.session_browser.close_detail_modal();
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                if app_guard.session_browser.show_detail_modal {
+                                    // 모달이 열려있으면 모달만 닫기
+                                    app_guard.session_browser.close_detail_modal();
+                                } else if app_guard.session_browser.selected_column.is_some() {
+                                    // 컬럼이 선택되어 있으면 컬럼 선택 해제
+                                    app_guard.session_browser.clear_column_selection();
+                                } else {
+                                    // 그 외에는 종료
+                                    app_guard.should_quit = true;
+                                }
                             } else {
                                 app_guard.should_quit = true;
                             }

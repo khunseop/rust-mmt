@@ -556,6 +556,11 @@ impl SessionBrowserState {
     pub fn close_detail_modal(&mut self) {
         self.show_detail_modal = false;
     }
+
+    /// 컬럼 선택 해제
+    pub fn clear_column_selection(&mut self) {
+        self.selected_column = None;
+    }
 }
 
 /// 트래픽 로그 분석 탭 상태

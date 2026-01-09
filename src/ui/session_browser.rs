@@ -412,7 +412,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let total_columns = 19;
     let current_col = app.session_browser.column_offset + 1;
     let help_text = vec![
-        format!("Tab: 탭전환 | q/Esc: 종료 | ↑↓: 행이동 | ←→: 컬럼선택/스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회 | Enter: 정렬/상세보기", 
+        format!("Tab: 탭전환 | q: 종료 | ↑↓: 행이동 | ←→: 컬럼선택/스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회 | Enter: 상세보기 | Shift+S: 정렬 | Esc: 컬럼선택해제", 
             current_col, total_columns),
         format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home: 첫페이지 | End: 마지막페이지"),
     ];
