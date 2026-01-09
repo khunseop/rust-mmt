@@ -382,6 +382,8 @@ pub struct SessionBrowserState {
     pub table_state: TableState,
     pub sessions: Vec<SessionData>,
     pub filter: String,
+    pub selected_group: Option<String>, // None = 전체보기
+    pub available_groups: Vec<String>,
 }
 
 impl SessionBrowserState {
@@ -390,6 +392,69 @@ impl SessionBrowserState {
             table_state: TableState::default(),
             sessions: Vec::new(),
             filter: String::new(),
+            selected_group: None, // None = 전체보기
+            available_groups: Vec::new(),
+        }
+    }
+
+    pub fn update_groups(&mut self, proxies: &[Proxy]) {
+        use std::collections::HashSet;
+        let mut groups: HashSet<String> = HashSet::new();
+        for proxy in proxies {
+            groups.insert(proxy.group.clone());
+        }
+        self.available_groups = groups.into_iter().collect();
+        self.available_groups.sort();
+    }
+
+    pub fn next_group(&mut self) {
+        if self.available_groups.is_empty() {
+            return;
+        }
+        match &self.selected_group {
+            None => {
+                // 전체보기 -> 첫 번째 그룹
+                self.selected_group = Some(self.available_groups[0].clone());
+            }
+            Some(current) => {
+                if let Some(index) = self.available_groups.iter().position(|g| g == current) {
+                    if index + 1 < self.available_groups.len() {
+                        self.selected_group = Some(self.available_groups[index + 1].clone());
+                    } else {
+                        // 마지막 그룹 -> 전체보기
+                        self.selected_group = None;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn previous_group(&mut self) {
+        if self.available_groups.is_empty() {
+            return;
+        }
+        match &self.selected_group {
+            None => {
+                // 전체보기 -> 마지막 그룹
+                self.selected_group = Some(self.available_groups.last().unwrap().clone());
+            }
+            Some(current) => {
+                if let Some(index) = self.available_groups.iter().position(|g| g == current) {
+                    if index > 0 {
+                        self.selected_group = Some(self.available_groups[index - 1].clone());
+                    } else {
+                        // 첫 번째 그룹 -> 전체보기
+                        self.selected_group = None;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_group_display_name(&self) -> String {
+        match &self.selected_group {
+            None => "전체".to_string(),
+            Some(group) => group.clone(),
         }
     }
 
@@ -500,6 +565,7 @@ impl App {
         self.proxies = config.proxies;
         // 그룹 목록 업데이트
         self.resource_usage.update_groups(&self.proxies);
+        self.session_browser.update_groups(&self.proxies);
         Ok(())
     }
 
@@ -548,6 +614,7 @@ impl App {
     pub fn on_group_next(&mut self) {
         match self.current_tab {
             TabIndex::ResourceUsage => self.resource_usage.next_group(),
+            TabIndex::SessionBrowser => self.session_browser.next_group(),
             _ => {}
         }
     }
@@ -555,6 +622,7 @@ impl App {
     pub fn on_group_previous(&mut self) {
         match self.current_tab {
             TabIndex::ResourceUsage => self.resource_usage.previous_group(),
+            TabIndex::SessionBrowser => self.session_browser.previous_group(),
             _ => {}
         }
     }

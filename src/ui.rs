@@ -638,28 +638,70 @@ fn draw_resource_usage(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),  // 컨트롤 영역 (그룹선택)
+            Constraint::Min(3),     // 데이터 테이블
+            Constraint::Length(4),  // 키보드 단축키 도움말
+        ])
         .split(area);
 
-    // 헤더 영역
-    let header = Block::default()
-        .borders(Borders::ALL)
-        .title("세션 브라우저");
-    frame.render_widget(header, chunks[0]);
+    // 컨트롤 영역
+    let control_chunks = Layout::default()
+        .direction(ratatui::layout::Direction::Horizontal)
+        .constraints([
+            Constraint::Length(18), // 그룹선택
+            Constraint::Min(0),     // 나머지
+        ])
+        .split(chunks[0]);
+    
+    use ratatui::widgets::Paragraph;
+    
+    // 그룹선택
+    let group_name = app.session_browser.get_group_display_name();
+    frame.render_widget(
+        Paragraph::new(group_name.as_str())
+            .block(Block::default().borders(Borders::ALL).title("그룹선택"))
+            .style(Style::default().fg(Color::Cyan)),
+        control_chunks[0],
+    );
+
+    // 프록시 ID를 그룹으로 매핑하는 HashMap 생성
+    let proxy_group_map: HashMap<u32, String> = app.proxies
+        .iter()
+        .map(|p| (p.id, p.group.clone()))
+        .collect();
+
+    // 선택된 그룹에 따라 세션 필터링
+    let filtered_sessions: Vec<&crate::app::SessionData> = match &app.session_browser.selected_group {
+        None => {
+            // 전체보기
+            app.session_browser.sessions.iter().collect()
+        }
+        Some(selected_group) => {
+            // 선택된 그룹의 프록시들만 필터링
+            app.session_browser.sessions
+                .iter()
+                .filter(|session| {
+                    proxy_group_map.get(&session.proxy_id)
+                        .map(|group| group == selected_group)
+                        .unwrap_or(false)
+                })
+                .collect()
+        }
+    };
 
     // 테이블 영역
-    let table = if app.session_browser.sessions.is_empty() {
+    let table = if filtered_sessions.is_empty() {
         Table::new(
             vec![Row::new(vec![
                 Cell::from("데이터가 없습니다. [S] 키를 눌러 조회하세요."),
             ])],
             [Constraint::Percentage(100)],
         )
-        .block(Block::default().borders(Borders::ALL))
+        .block(Block::default().borders(Borders::ALL).title("세션 목록"))
     } else {
-        let rows: Vec<Row> = app
-            .session_browser
-            .sessions
+        let rows: Vec<Row> = filtered_sessions
             .iter()
             .enumerate()
             .map(|(i, session)| {
@@ -669,12 +711,26 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
                     Style::default()
                 };
 
+                // URL이 너무 길면 잘라서 표시
+                let url_display = session
+                    .url
+                    .as_ref()
+                    .map(|s| {
+                        if s.len() > 50 {
+                            format!("{}...", &s[..47])
+                        } else {
+                            s.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "N/A".to_string());
+
                 Row::new(vec![
                     Cell::from(session.host.clone()).style(style),
                     Cell::from(session.client_ip.clone()).style(style),
+                    Cell::from(url_display).style(style),
                     Cell::from(
                         session
-                            .url
+                            .protocol
                             .as_ref()
                             .map(|s| s.as_str())
                             .unwrap_or("N/A"),
@@ -685,21 +741,37 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
             .collect();
 
         Table::new(rows, [
-            Constraint::Percentage(30),
-            Constraint::Percentage(30),
-            Constraint::Percentage(40),
+            Constraint::Length(20),  // 호스트
+            Constraint::Length(18),   // 클라이언트IP
+            Constraint::Min(20),      // URL (나머지 공간)
+            Constraint::Length(10),   // 프로토콜
         ])
         .header(Row::new(vec![
             Cell::from("호스트").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("클라이언트IP").style(Style::default().add_modifier(Modifier::BOLD)),
             Cell::from("URL").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("프로토콜").style(Style::default().add_modifier(Modifier::BOLD)),
         ]))
-        .block(Block::default().borders(Borders::ALL))
+        .block(Block::default().borders(Borders::ALL).title(format!(
+            "세션 목록 (총 {}개)",
+            filtered_sessions.len()
+        )))
         .highlight_style(Style::default().bg(Color::Blue))
         .highlight_symbol(">> ")
     };
 
     frame.render_stateful_widget(table, chunks[1], &mut app.session_browser.table_state);
+
+    // 키보드 단축키 도움말
+    let help_text = vec![
+        "Tab: 탭전환 | q/Esc: 종료 | ↑↓: 테이블이동 | Shift+←→: 그룹선택 | S: 세션조회",
+    ];
+    frame.render_widget(
+        Paragraph::new(help_text.join("\n"))
+            .block(Block::default().borders(Borders::ALL).title("단축키"))
+            .style(Style::default().fg(Color::Gray)),
+        chunks[2],
+    );
 }
 
 fn draw_traffic_logs(frame: &mut Frame, app: &mut App, area: Rect) {
