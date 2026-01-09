@@ -1,7 +1,7 @@
 use crate::app::{Proxy, SessionData};
 use crate::ssh::SshClient;
 use anyhow::{Context, Result};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use regex::Regex;
 use std::time::Duration;
 
@@ -119,9 +119,18 @@ impl SessionCollector {
             // Creation Time 파싱
             let creation_time = creation_time_idx.and_then(|idx| {
                 parts.get(idx).and_then(|ct_str| {
-                    DateTime::parse_from_str(ct_str, "%Y-%m-%d %H:%M:%S")
-                        .ok()
-                        .map(|dt| dt.with_timezone(&Local))
+                    // NaiveDateTime로 파싱 후 Local 시간대로 변환
+                    if let Ok(naive_dt) = NaiveDateTime::parse_from_str(ct_str, "%Y-%m-%d %H:%M:%S") {
+                        // Local 시간대로 변환 (ambiguous time은 첫 번째로 선택)
+                        return Some(Local.from_local_datetime(&naive_dt)
+                            .single()
+                            .unwrap_or_else(|| naive_dt.and_utc().with_timezone(&Local)));
+                    }
+                    // DateTime::parse_from_str 시도 (이미 시간대 포함된 경우)
+                    if let Ok(dt) = DateTime::parse_from_str(ct_str, "%Y-%m-%d %H:%M:%S %z") {
+                        return Some(dt.with_timezone(&Local));
+                    }
+                    None
                 })
             });
 

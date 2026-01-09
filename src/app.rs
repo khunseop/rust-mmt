@@ -427,8 +427,9 @@ impl SessionBrowserState {
 
     /// 컬럼 오프셋 증가 (오른쪽으로 스크롤)
     pub fn scroll_right(&mut self) {
-        // 최대 컬럼 수는 동적으로 계산되므로 여기서는 제한 없이 증가
-        self.column_offset = self.column_offset.saturating_add(1);
+        // 최대 컬럼 수는 19개, 한 번에 10개씩 표시하므로 최대 9까지
+        let max_offset = 19usize.saturating_sub(10);
+        self.column_offset = (self.column_offset + 1).min(max_offset);
     }
 
     /// 컬럼 오프셋 감소 (왼쪽으로 스크롤)
@@ -641,13 +642,29 @@ impl App {
     }
 
     pub fn on_left(&mut self) {
-        // 모든 탭에서 탭 전환
-        self.current_tab = self.current_tab.previous();
+        match self.current_tab {
+            TabIndex::SessionBrowser => {
+                // 세션 브라우저 탭에서는 테이블 가로 스크롤
+                self.session_browser.scroll_left();
+            }
+            _ => {
+                // 다른 탭에서는 탭 전환
+                self.current_tab = self.current_tab.previous();
+            }
+        }
     }
 
     pub fn on_right(&mut self) {
-        // 모든 탭에서 탭 전환
-        self.current_tab = self.current_tab.next();
+        match self.current_tab {
+            TabIndex::SessionBrowser => {
+                // 세션 브라우저 탭에서는 테이블 가로 스크롤
+                self.session_browser.scroll_right();
+            }
+            _ => {
+                // 다른 탭에서는 탭 전환
+                self.current_tab = self.current_tab.next();
+            }
+        }
     }
 
     pub fn on_group_next(&mut self) {

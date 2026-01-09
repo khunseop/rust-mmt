@@ -137,8 +137,23 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
-                        KeyCode::Tab => app_guard.on_right(),
-                        KeyCode::BackTab => app_guard.on_left(),
+                        KeyCode::Tab => {
+                            // Tab 키는 항상 탭 전환 (컬럼 스크롤 아님)
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                // 세션 브라우저 탭에서는 다음 탭으로 이동
+                                app_guard.current_tab = app_guard.current_tab.next();
+                            } else {
+                                app_guard.on_right();
+                            }
+                        }
+                        KeyCode::BackTab => {
+                            // Shift+Tab도 항상 탭 전환
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                app_guard.current_tab = app_guard.current_tab.previous();
+                            } else {
+                                app_guard.on_left();
+                            }
+                        }
                         KeyCode::Char(' ') => {
                             // Space로 자동 수집 토글
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage

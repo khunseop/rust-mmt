@@ -829,8 +829,10 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
                 ];
 
                 // 컬럼 오프셋에 따라 표시할 컬럼 선택
+                // 화면 크기에 따라 더 많은 컬럼 표시 (최대 10개)
+                let max_visible = 10;
                 let start_idx = app.session_browser.column_offset.min(all_cells.len());
-                let end_idx = (start_idx + 8).min(all_cells.len()); // 최대 8개 컬럼 표시
+                let end_idx = (start_idx + max_visible).min(all_cells.len());
                 let visible_cells = if start_idx < all_cells.len() {
                     all_cells[start_idx..end_idx].to_vec()
                 } else {
@@ -864,9 +866,10 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
             ("URL", Constraint::Min(30)),
         ];
 
-        // 표시할 컬럼 선택
+        // 표시할 컬럼 선택 (최대 10개)
+        let max_visible = 10;
         let start_idx = app.session_browser.column_offset.min(all_columns.len());
-        let end_idx = (start_idx + 8).min(all_columns.len());
+        let end_idx = (start_idx + max_visible).min(all_columns.len());
         let visible_columns = if start_idx < all_columns.len() {
             &all_columns[start_idx..end_idx]
         } else {
