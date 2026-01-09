@@ -53,7 +53,34 @@ impl App {
                 self.resource_usage.selected_control = None;
                 self.resource_usage.previous();
             }
-            TabIndex::SessionBrowser => self.session_browser.previous(),
+            TabIndex::SessionBrowser => {
+                // 현재 페이지의 아이템 수 계산
+                let filtered_count = match &self.session_browser.selected_group {
+                    None => self.session_browser.sessions.len(),
+                    Some(group) => {
+                        let proxy_group_map: std::collections::HashMap<u32, String> = self.proxies
+                            .iter()
+                            .map(|p| (p.id, p.group.clone()))
+                            .collect();
+                        self.session_browser.sessions
+                            .iter()
+                            .filter(|session| {
+                                proxy_group_map.get(&session.proxy_id)
+                                    .map(|g| g == group)
+                                    .unwrap_or(false)
+                            })
+                            .count()
+                    }
+                };
+                let page_start = self.session_browser.current_page * self.session_browser.page_size;
+                let page_end = (page_start + self.session_browser.page_size).min(filtered_count);
+                let current_page_items = if page_start < filtered_count {
+                    page_end - page_start
+                } else {
+                    0
+                };
+                self.session_browser.previous(current_page_items);
+            }
             TabIndex::TrafficLogs => {}
         }
     }
@@ -66,7 +93,34 @@ impl App {
                 self.resource_usage.selected_control = None;
                 self.resource_usage.next();
             }
-            TabIndex::SessionBrowser => self.session_browser.next(),
+            TabIndex::SessionBrowser => {
+                // 현재 페이지의 아이템 수 계산
+                let filtered_count = match &self.session_browser.selected_group {
+                    None => self.session_browser.sessions.len(),
+                    Some(group) => {
+                        let proxy_group_map: std::collections::HashMap<u32, String> = self.proxies
+                            .iter()
+                            .map(|p| (p.id, p.group.clone()))
+                            .collect();
+                        self.session_browser.sessions
+                            .iter()
+                            .filter(|session| {
+                                proxy_group_map.get(&session.proxy_id)
+                                    .map(|g| g == group)
+                                    .unwrap_or(false)
+                            })
+                            .count()
+                    }
+                };
+                let page_start = self.session_browser.current_page * self.session_browser.page_size;
+                let page_end = (page_start + self.session_browser.page_size).min(filtered_count);
+                let current_page_items = if page_start < filtered_count {
+                    page_end - page_start
+                } else {
+                    0
+                };
+                self.session_browser.next(current_page_items);
+            }
             TabIndex::TrafficLogs => {}
         }
     }
@@ -74,8 +128,8 @@ impl App {
     pub fn on_left(&mut self) {
         match self.current_tab {
             TabIndex::SessionBrowser => {
-                // 세션 브라우저 탭에서는 테이블 가로 스크롤
-                self.session_browser.scroll_left();
+                // 세션 브라우저 탭에서는 컬럼 선택과 가로 스크롤 동시 처리
+                self.session_browser.select_column_left();
             }
             _ => {
                 // 다른 탭에서는 탭 전환
@@ -87,8 +141,8 @@ impl App {
     pub fn on_right(&mut self) {
         match self.current_tab {
             TabIndex::SessionBrowser => {
-                // 세션 브라우저 탭에서는 테이블 가로 스크롤
-                self.session_browser.scroll_right();
+                // 세션 브라우저 탭에서는 컬럼 선택과 가로 스크롤 동시 처리
+                self.session_browser.select_column_right();
             }
             _ => {
                 // 다른 탭에서는 탭 전환

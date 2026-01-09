@@ -398,11 +398,18 @@ impl SessionBrowserState {
         }
     }
 
-    pub fn next(&mut self) {
+    pub fn next(&mut self, current_page_items: usize) {
         let i = match self.table_state.selected() {
             Some(i) => {
-                if i >= self.sessions.len().saturating_sub(1) {
-                    0
+                if i >= current_page_items.saturating_sub(1) {
+                    // 현재 페이지의 마지막 행이면 다음 페이지로 이동
+                    if self.current_page < self.total_pages.saturating_sub(1) {
+                        self.current_page += 1;
+                        0 // 다음 페이지의 첫 번째 행
+                    } else {
+                        // 마지막 페이지면 첫 번째 행으로
+                        0
+                    }
                 } else {
                     i + 1
                 }
@@ -412,11 +419,19 @@ impl SessionBrowserState {
         self.table_state.select(Some(i));
     }
 
-    pub fn previous(&mut self) {
+    pub fn previous(&mut self, current_page_items: usize) {
         let i = match self.table_state.selected() {
             Some(i) => {
                 if i == 0 {
-                    self.sessions.len().saturating_sub(1)
+                    // 현재 페이지의 첫 번째 행이면 이전 페이지로 이동
+                    if self.current_page > 0 {
+                        self.current_page -= 1;
+                        // 이전 페이지의 마지막 행 (실제로는 페이지 크기만큼이지만, 안전하게)
+                        current_page_items.saturating_sub(1)
+                    } else {
+                        // 첫 페이지면 마지막 행으로
+                        current_page_items.saturating_sub(1)
+                    }
                 } else {
                     i - 1
                 }
@@ -478,35 +493,39 @@ impl SessionBrowserState {
         }
     }
 
-    /// 컬럼 선택 모드로 전환
-    pub fn enter_column_selection_mode(&mut self) {
-        self.selected_column = Some(0);
-        self.table_state.select(None);
-    }
-
-    /// 행 선택 모드로 전환
-    pub fn enter_row_selection_mode(&mut self) {
-        self.selected_column = None;
-        if !self.sessions.is_empty() {
-            self.table_state.select(Some(0));
-        }
-    }
-
-    /// 컬럼 선택 이동 (왼쪽)
+    /// 컬럼 선택 이동 (왼쪽) - 가로 스크롤도 함께 처리
     pub fn select_column_left(&mut self) {
         if let Some(col) = self.selected_column {
             if col > 0 {
                 self.selected_column = Some(col - 1);
+                // 선택된 컬럼이 보이도록 가로 스크롤 조정
+                const MAX_VISIBLE: usize = 10;
+                if col - 1 < self.column_offset {
+                    // 선택된 컬럼이 현재 보이는 범위 밖이면 스크롤 조정
+                    self.column_offset = col - 1;
+                }
             }
+        } else {
+            // 컬럼이 선택되지 않았으면 첫 번째 컬럼 선택
+            self.selected_column = Some(0);
         }
     }
 
-    /// 컬럼 선택 이동 (오른쪽)
+    /// 컬럼 선택 이동 (오른쪽) - 가로 스크롤도 함께 처리
     pub fn select_column_right(&mut self) {
         if let Some(col) = self.selected_column {
             if col < 18 {
                 self.selected_column = Some(col + 1);
+                // 선택된 컬럼이 보이도록 가로 스크롤 조정
+                const MAX_VISIBLE: usize = 10;
+                if col + 1 >= self.column_offset + MAX_VISIBLE {
+                    // 선택된 컬럼이 현재 보이는 범위 밖이면 스크롤 조정
+                    self.column_offset = (col + 1).saturating_sub(MAX_VISIBLE - 1);
+                }
             }
+        } else {
+            // 컬럼이 선택되지 않았으면 첫 번째 컬럼 선택
+            self.selected_column = Some(0);
         }
     }
 

@@ -124,10 +124,6 @@ fn run_app<B: Backend>(
                         KeyCode::Left | KeyCode::Char('h') => {
                             if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
                                 app_guard.on_group_previous();
-                            } else if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
-                                && app_guard.session_browser.selected_column.is_some() {
-                                // 컬럼 선택 모드: 컬럼 선택 이동
-                                app_guard.session_browser.select_column_left();
                             } else {
                                 app_guard.on_left();
                             }
@@ -136,28 +132,14 @@ fn run_app<B: Backend>(
                         KeyCode::Right | KeyCode::Char('l') => {
                             if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
                                 app_guard.on_group_next();
-                            } else if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
-                                && app_guard.session_browser.selected_column.is_some() {
-                                // 컬럼 선택 모드: 컬럼 선택 이동
-                                app_guard.session_browser.select_column_right();
                             } else {
                                 app_guard.on_right();
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
                         KeyCode::Tab => {
-                            // 세션 브라우저 탭에서 Tab 키는 컬럼 선택 모드 토글
-                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
-                                if app_guard.session_browser.selected_column.is_some() {
-                                    // 컬럼 선택 모드 -> 행 선택 모드
-                                    app_guard.session_browser.enter_row_selection_mode();
-                                } else {
-                                    // 행 선택 모드 -> 컬럼 선택 모드
-                                    app_guard.session_browser.enter_column_selection_mode();
-                                }
-                            } else {
-                                app_guard.on_right();
-                            }
+                            // Tab 키는 항상 탭 전환만
+                            app_guard.on_right();
                         }
                         KeyCode::BackTab => {
                             // Shift+Tab도 항상 탭 전환
@@ -186,7 +168,7 @@ fn run_app<B: Backend>(
                             // Enter 키 처리
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
                                 if app_guard.session_browser.selected_column.is_some() {
-                                    // 컬럼 선택 모드: 정렬 토글
+                                    // 컬럼이 선택되어 있으면 정렬 토글
                                     app_guard.session_browser.toggle_sort();
                                     // 정렬 후 세션 목록 재정렬
                                     let sort_col = app_guard.session_browser.sort_column;
