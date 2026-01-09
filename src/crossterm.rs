@@ -23,16 +23,15 @@ fn setup_windows_console() -> Result<(), Box<dyn Error>> {
     // Windows에서 UTF-8 코드 페이지 설정
     // 이렇게 하면 cmd에서도 한글이 제대로 표시됩니다
     unsafe {
-        use windows_sys::Win32::Foundation::GetStdHandle;
         use windows_sys::Win32::Globalization::CP_UTF8;
         use windows_sys::Win32::System::Console::{
-            GetConsoleMode, SetConsoleMode, STD_OUTPUT_HANDLE, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+            GetConsoleMode, GetStdHandle, SetConsoleCP, SetConsoleMode, SetConsoleOutputCP,
+            STD_OUTPUT_HANDLE, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
         };
         
         // UTF-8 코드 페이지 설정
-        // windows-sys 0.52에서는 SetConsoleOutputCP와 SetConsoleCP가 다른 모듈에 있을 수 있음
-        windows_sys::Win32::System::Console::SetConsoleOutputCP(CP_UTF8);
-        windows_sys::Win32::System::Console::SetConsoleCP(CP_UTF8);
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleCP(CP_UTF8);
         
         // ANSI 이스케이프 시퀀스 지원 활성화 (Windows 10 이상)
         // 이렇게 하면 cmd에서도 색상이 제대로 표시됩니다
