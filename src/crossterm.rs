@@ -160,6 +160,26 @@ fn run_app<B: Backend>(
                                 app_guard.resource_usage.decrease_interval();
                             }
                         }
+                        KeyCode::Char('s') | KeyCode::Char('S') => {
+                            // S 키로 세션 조회 시작
+                            let should_query = app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && app_guard.session_browser.query_status != crate::app::CollectionStatus::Collecting
+                                && !app_guard.is_querying_sessions;
+                            
+                            if should_query {
+                                app_guard.is_querying_sessions = true;
+                                let app_clone = app.clone();
+                                drop(app_guard);
+                                rt.spawn(async move {
+                                    let mut app_guard = app_clone.lock().await;
+                                    if let Err(e) = app_guard.start_session_query().await {
+                                        eprintln!("세션 조회 실패: {}", e);
+                                    }
+                                });
+                                // app_guard가 drop되었으므로 다시 lock 필요
+                                app_guard = rt.block_on(app.lock());
+                            }
+                        }
                         KeyCode::Char(c) => app_guard.on_key(c),
                         KeyCode::Esc => app_guard.should_quit = true,
                         _ => {}

@@ -384,6 +384,11 @@ pub struct SessionBrowserState {
     pub filter: String,
     pub selected_group: Option<String>, // None = 전체보기
     pub available_groups: Vec<String>,
+    pub query_status: CollectionStatus, // 조회 상태
+    pub query_progress: Option<(usize, usize)>, // (완료된 수, 전체 수)
+    pub last_query_time: Option<chrono::DateTime<chrono::Local>>,
+    pub last_error: Option<String>, // 마지막 에러 메시지
+    pub query_start_time: Option<chrono::DateTime<chrono::Local>>,
 }
 
 impl SessionBrowserState {
@@ -394,6 +399,11 @@ impl SessionBrowserState {
             filter: String::new(),
             selected_group: None, // None = 전체보기
             available_groups: Vec::new(),
+            query_status: CollectionStatus::Idle,
+            query_progress: None,
+            last_query_time: None,
+            last_error: None,
+            query_start_time: None,
         }
     }
 
@@ -513,6 +523,7 @@ pub struct App {
     pub session_browser: SessionBrowserState,
     pub traffic_logs: TrafficLogsState,
     pub is_collecting: bool, // 수집 중 플래그
+    pub is_querying_sessions: bool, // 세션 조회 중 플래그
 }
 
 /// 실행 파일의 디렉터리를 기준으로 config 파일 경로를 반환합니다.
@@ -554,6 +565,7 @@ impl App {
             session_browser: SessionBrowserState::new(),
             traffic_logs: TrafficLogsState::new(),
             is_collecting: false,
+            is_querying_sessions: false,
         }
     }
 
@@ -775,6 +787,75 @@ impl App {
         }
 
         self.is_collecting = false;
+        Ok(())
+    }
+
+    /// 세션 조회 시작 (비동기)
+    pub async fn start_session_query(&mut self) -> anyhow::Result<()> {
+        if self.is_querying_sessions {
+            return Ok(()); // 이미 조회 중이면 무시
+        }
+
+        if self.session_browser.query_status == CollectionStatus::Collecting {
+            return Ok(()); // 이미 조회 중이면 무시
+        }
+
+        // 필터링된 프록시 목록 가져오기
+        let proxies_to_query: Vec<Proxy> = match &self.session_browser.selected_group {
+            None => self.proxies.clone(), // 전체
+            Some(group) => self
+                .proxies
+                .iter()
+                .filter(|p| &p.group == group)
+                .cloned()
+                .collect(),
+        };
+
+        if proxies_to_query.is_empty() {
+            return Ok(()); // 조회할 프록시가 없음
+        }
+
+        self.session_browser.last_error = None;
+        self.session_browser.query_status = CollectionStatus::Collecting;
+        self.session_browser.query_progress = Some((0, proxies_to_query.len()));
+        self.session_browser.query_start_time = Some(chrono::Local::now());
+
+        // 세션 조회 실행
+        match crate::session_collector::SessionCollector::query_multiple(&proxies_to_query).await {
+            Ok(sessions) => {
+                let success_count = proxies_to_query.len();
+                let total_count = proxies_to_query.len();
+                
+                self.session_browser.sessions = sessions;
+                let now = chrono::Local::now();
+                self.session_browser.last_query_time = Some(now);
+                
+                self.session_browser.query_status = CollectionStatus::Success;
+                self.session_browser.query_progress = Some((success_count, total_count));
+                
+                // CSV 저장
+                if !self.session_browser.sessions.is_empty() {
+                    if let Err(e) = crate::csv_writer::CsvWriter::save_sessions(&self.session_browser.sessions) {
+                        let existing_error = self.session_browser.last_error.clone();
+                        self.session_browser.last_error = Some(format!(
+                            "{}{}",
+                            existing_error.map(|e| format!("{} / ", e)).unwrap_or_default(),
+                            format!("CSV 저장 실패: {}", e)
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                // 조회 실패 - 에러 메시지 저장
+                self.session_browser.last_error = Some(format!("세션 조회 실패: {}", e));
+                self.session_browser.query_status = CollectionStatus::Failed;
+                self.session_browser.sessions = Vec::new();
+                self.session_browser.query_progress = None;
+            }
+        }
+
+        self.session_browser.query_start_time = None;
+        self.is_querying_sessions = false;
         Ok(())
     }
 }

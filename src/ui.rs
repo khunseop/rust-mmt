@@ -651,6 +651,8 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
         .direction(ratatui::layout::Direction::Horizontal)
         .constraints([
             Constraint::Length(18), // 그룹선택
+            Constraint::Length(18), // 상태
+            Constraint::Length(20), // 마지막조회
             Constraint::Min(0),     // 나머지
         ])
         .split(chunks[0]);
@@ -664,6 +666,49 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
             .block(Block::default().borders(Borders::ALL).title("그룹선택"))
             .style(Style::default().fg(Color::Cyan)),
         control_chunks[0],
+    );
+
+    // 상태
+    let (status_text, status_color, elapsed_sec) = match app.session_browser.query_status {
+        crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray, None),
+        crate::app::CollectionStatus::Starting => ("시작중".to_string(), Color::Yellow, None),
+        crate::app::CollectionStatus::Collecting => {
+            let elapsed = app.session_browser.query_start_time
+                .map(|start| (chrono::Local::now() - start).num_seconds());
+            if let Some((completed, total)) = app.session_browser.query_progress {
+                (format!("조회중 ({}/{})", completed, total), Color::Yellow, elapsed)
+            } else {
+                ("조회중".to_string(), Color::Yellow, elapsed)
+            }
+        }
+        crate::app::CollectionStatus::Success => ("완료".to_string(), Color::Green, None),
+        crate::app::CollectionStatus::Failed => ("실패".to_string(), Color::Red, None),
+    };
+    let status_display = if let Some(elapsed) = elapsed_sec {
+        format!("{}\n{}초", status_text, elapsed)
+    } else {
+        status_text
+    };
+    frame.render_widget(
+        Paragraph::new(status_display.as_str())
+            .block(Block::default().borders(Borders::ALL).title("상태"))
+            .style(Style::default().fg(status_color)),
+        control_chunks[1],
+    );
+
+    // 마지막 조회 시간
+    let last_query_text = if let Some(last_time) = app.session_browser.last_query_time {
+        format!("{}\n{}", 
+            last_time.format("%H:%M:%S"),
+            last_time.format("%m/%d"))
+    } else {
+        "없음".to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(last_query_text.as_str())
+            .block(Block::default().borders(Borders::ALL).title("마지막조회"))
+            .style(Style::default().fg(Color::Cyan)),
+        control_chunks[2],
     );
 
     // 프록시 ID를 그룹으로 매핑하는 HashMap 생성
@@ -693,9 +738,20 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // 테이블 영역
     let table = if filtered_sessions.is_empty() {
+        let empty_message = if app.session_browser.query_status == crate::app::CollectionStatus::Collecting {
+            "조회 중...".to_string()
+        } else if app.session_browser.query_status == crate::app::CollectionStatus::Failed {
+            if let Some(ref error) = app.session_browser.last_error {
+                format!("조회 실패: {}", error)
+            } else {
+                "조회 실패".to_string()
+            }
+        } else {
+            "데이터가 없습니다. [S] 키를 눌러 조회하세요.".to_string()
+        };
         Table::new(
             vec![Row::new(vec![
-                Cell::from("데이터가 없습니다. [S] 키를 눌러 조회하세요."),
+                Cell::from(empty_message),
             ])],
             [Constraint::Percentage(100)],
         )

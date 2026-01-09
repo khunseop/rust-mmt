@@ -5,6 +5,7 @@ mod snmp;
 mod ssh;
 mod collector;
 mod csv_writer;
+mod session_collector;
 
 use std::time::Duration;
 

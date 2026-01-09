@@ -162,5 +162,52 @@ impl CsvWriter {
 
         Ok(filepath)
     }
+
+    /// 세션 데이터를 CSV 파일로 저장합니다.
+    pub fn save_sessions(sessions: &[crate::app::SessionData]) -> Result<PathBuf> {
+        // logs 디렉토리 생성
+        let logs_dir = PathBuf::from("logs");
+        fs::create_dir_all(&logs_dir).context("Failed to create logs directory")?;
+
+        // 파일명 생성 (타임스탬프 포함)
+        let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("sessions_{}.csv", timestamp);
+        let filepath = logs_dir.join(&filename);
+
+        // CSV 작성
+        let mut wtr = csv::Writer::from_path(&filepath)
+            .context("Failed to create CSV file")?;
+
+        // 헤더 작성
+        wtr.write_record(&[
+            "timestamp",
+            "proxy_id",
+            "host",
+            "client_ip",
+            "server_ip",
+            "url",
+            "protocol",
+        ])
+        .context("Failed to write CSV header")?;
+
+        // 데이터 작성
+        let timestamp_str = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        for session in sessions {
+            wtr.write_record(&[
+                timestamp_str.clone(),
+                session.proxy_id.to_string(),
+                session.host.clone(),
+                session.client_ip.clone(),
+                session.server_ip.as_ref().unwrap_or(&String::new()).clone(),
+                session.url.as_ref().unwrap_or(&String::new()).clone(),
+                session.protocol.as_ref().unwrap_or(&String::new()).clone(),
+            ])
+            .context("Failed to write CSV record")?;
+        }
+
+        wtr.flush().context("Failed to flush CSV file")?;
+
+        Ok(filepath)
+    }
 }
 
