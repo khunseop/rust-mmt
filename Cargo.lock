@@ -592,6 +592,7 @@ dependencies = [
  "ssh2",
  "tokio",
  "tokio-util",
+ "winapi",
 ]
 
 [[package]]

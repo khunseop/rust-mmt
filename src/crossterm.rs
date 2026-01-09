@@ -20,9 +20,32 @@ use crate::{app::App, ui};
 
 #[cfg(windows)]
 fn setup_windows_console() -> Result<(), Box<dyn Error>> {
-    // Windows에서는 PowerShell이나 Windows Terminal을 사용하는 것을 권장합니다.
-    // crossterm은 이미 Windows를 지원하므로 추가 설정 없이도 작동합니다.
-    // 만약 cmd.exe를 사용하는 경우, PowerShell이나 Windows Terminal로 전환하세요.
+    use winapi::shared::minwindef::DWORD;
+    use winapi::um::consoleapi::{GetConsoleMode, SetConsoleMode};
+    use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+    use winapi::um::processenv::GetStdHandle;
+    use winapi::um::wincon::{ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE};
+    use winapi::um::winnls::{SetConsoleCP, SetConsoleOutputCP, CP_UTF8};
+    
+    unsafe {
+        // UTF-8 코드 페이지 설정
+        // 이렇게 하면 cmd.exe에서도 한글이 제대로 표시됩니다
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleCP(CP_UTF8);
+        
+        // ANSI 이스케이프 시퀀스 지원 활성화 (Windows 10 이상)
+        // 이렇게 하면 cmd.exe에서도 색상이 제대로 표시됩니다
+        let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        if stdout_handle != INVALID_HANDLE_VALUE {
+            let mut mode: DWORD = 0;
+            if GetConsoleMode(stdout_handle, &mut mode) != 0 {
+                // ENABLE_VIRTUAL_TERMINAL_PROCESSING 플래그 추가
+                let new_mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+                SetConsoleMode(stdout_handle, new_mode);
+            }
+        }
+    }
+    
     Ok(())
 }
 
