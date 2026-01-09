@@ -124,6 +124,10 @@ fn run_app<B: Backend>(
                         KeyCode::Left | KeyCode::Char('h') => {
                             if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
                                 app_guard.on_group_previous();
+                            } else if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && app_guard.session_browser.selected_column.is_some() {
+                                // 컬럼 선택 모드: 컬럼 선택 이동
+                                app_guard.session_browser.select_column_left();
                             } else {
                                 app_guard.on_left();
                             }
@@ -132,16 +136,25 @@ fn run_app<B: Backend>(
                         KeyCode::Right | KeyCode::Char('l') => {
                             if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
                                 app_guard.on_group_next();
+                            } else if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && app_guard.session_browser.selected_column.is_some() {
+                                // 컬럼 선택 모드: 컬럼 선택 이동
+                                app_guard.session_browser.select_column_right();
                             } else {
                                 app_guard.on_right();
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
                         KeyCode::Tab => {
-                            // Tab 키는 항상 탭 전환 (컬럼 스크롤 아님)
+                            // 세션 브라우저 탭에서 Tab 키는 컬럼 선택 모드 토글
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
-                                // 세션 브라우저 탭에서는 다음 탭으로 이동
-                                app_guard.current_tab = app_guard.current_tab.next();
+                                if app_guard.session_browser.selected_column.is_some() {
+                                    // 컬럼 선택 모드 -> 행 선택 모드
+                                    app_guard.session_browser.enter_row_selection_mode();
+                                } else {
+                                    // 행 선택 모드 -> 컬럼 선택 모드
+                                    app_guard.session_browser.enter_column_selection_mode();
+                                }
                             } else {
                                 app_guard.on_right();
                             }
@@ -155,10 +168,14 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Char(' ') => {
-                            // Space로 자동 수집 토글
-                            if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
+                            // Space 키 처리
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                // 세션 브라우저 탭: 다음 페이지
+                                app_guard.session_browser.next_page();
+                            } else if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
                                 && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
                             {
+                                // 자원 사용률 탭: 자동 수집 토글
                                 app_guard.resource_usage.toggle_auto_collection();
                                 if app_guard.resource_usage.auto_collection_enabled && collection_task.is_none() {
                                     collection_task = Some(spawn_collection_task(app.clone(), &rt));
@@ -166,10 +183,33 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Enter => {
-                            // Enter 키는 현재 사용하지 않음
+                            // Enter 키 처리
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                if app_guard.session_browser.selected_column.is_some() {
+                                    // 컬럼 선택 모드: 정렬 토글
+                                    app_guard.session_browser.toggle_sort();
+                                    // 정렬 후 세션 목록 재정렬
+                                    let sort_col = app_guard.session_browser.sort_column;
+                                    let sort_asc = app_guard.session_browser.sort_ascending;
+                                    crate::app::App::sort_sessions(
+                                        &mut app_guard.session_browser.sessions,
+                                        sort_col,
+                                        sort_asc
+                                    );
+                                } else {
+                                    // 행 선택 모드: 상세보기 모달 토글
+                                    app_guard.session_browser.toggle_detail_modal();
+                                }
+                            }
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
-                            app_guard.should_quit = true;
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && app_guard.session_browser.show_detail_modal {
+                                // 모달이 열려있으면 모달만 닫기
+                                app_guard.session_browser.close_detail_modal();
+                            } else {
+                                app_guard.should_quit = true;
+                            }
                         }
                         KeyCode::Char('+') | KeyCode::Char('=') => {
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
@@ -206,8 +246,42 @@ fn run_app<B: Backend>(
                                 app_guard = rt.block_on(app.lock());
                             }
                         }
-                        KeyCode::Char(c) => app_guard.on_key(c),
-                        KeyCode::Esc => app_guard.should_quit = true,
+                        KeyCode::Char(c) => {
+                            if c == 'b' && app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                app_guard.session_browser.previous_page();
+                            } else {
+                                app_guard.on_key(c);
+                            }
+                        }
+                        KeyCode::Esc => {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && app_guard.session_browser.show_detail_modal {
+                                // 모달이 열려있으면 모달만 닫기
+                                app_guard.session_browser.close_detail_modal();
+                            } else {
+                                app_guard.should_quit = true;
+                            }
+                        }
+                        KeyCode::PageDown => {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                app_guard.session_browser.next_page();
+                            }
+                        }
+                        KeyCode::PageUp => {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                app_guard.session_browser.previous_page();
+                            }
+                        }
+                        KeyCode::Home => {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                app_guard.session_browser.first_page();
+                            }
+                        }
+                        KeyCode::End => {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                app_guard.session_browser.last_page();
+                            }
+                        }
                         _ => {}
                     }
                     

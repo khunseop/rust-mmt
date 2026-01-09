@@ -285,6 +285,19 @@ pub struct SessionBrowserState {
     pub query_start_time: Option<chrono::DateTime<chrono::Local>>,
     pub spinner_frame: usize, // 스피너 애니메이션 프레임
     pub column_offset: usize, // 가로 스크롤 오프셋 (표시할 첫 번째 컬럼 인덱스)
+    
+    // 페이지네이션
+    pub page_size: usize,
+    pub current_page: usize,
+    pub total_pages: usize,
+    
+    // 열 선택 및 정렬
+    pub selected_column: Option<usize>, // 선택된 컬럼 인덱스 (None = 행 선택 모드)
+    pub sort_column: Option<usize>, // 정렬 기준 컬럼
+    pub sort_ascending: bool, // 정렬 방향
+    
+    // 상세보기 모달
+    pub show_detail_modal: bool, // 상세보기 모달 표시 여부
 }
 
 impl SessionBrowserState {
@@ -302,6 +315,13 @@ impl SessionBrowserState {
             query_start_time: None,
             spinner_frame: 0,
             column_offset: 0,
+            page_size: 50, // 기본 페이지 크기
+            current_page: 0,
+            total_pages: 0,
+            selected_column: None, // None = 행 선택 모드
+            sort_column: None,
+            sort_ascending: true,
+            show_detail_modal: false,
         }
     }
 
@@ -404,6 +424,118 @@ impl SessionBrowserState {
             None => 0,
         };
         self.table_state.select(Some(i));
+    }
+
+    /// 페이지네이션된 세션 목록 가져오기
+    pub fn get_paginated_sessions<'a>(&self, sessions: &'a [crate::app::types::SessionData]) -> Vec<&'a crate::app::types::SessionData> {
+        let start = self.current_page * self.page_size;
+        let end = (start + self.page_size).min(sessions.len());
+        if start >= sessions.len() {
+            return Vec::new();
+        }
+        sessions[start..end].iter().collect()
+    }
+
+    /// 다음 페이지로 이동
+    pub fn next_page(&mut self) {
+        if self.current_page < self.total_pages.saturating_sub(1) {
+            self.current_page += 1;
+            self.table_state.select(Some(0));
+        }
+    }
+
+    /// 이전 페이지로 이동
+    pub fn previous_page(&mut self) {
+        if self.current_page > 0 {
+            self.current_page -= 1;
+            self.table_state.select(Some(0));
+        }
+    }
+
+    /// 첫 페이지로 이동
+    pub fn first_page(&mut self) {
+        self.current_page = 0;
+        self.table_state.select(Some(0));
+    }
+
+    /// 마지막 페이지로 이동
+    pub fn last_page(&mut self) {
+        if self.total_pages > 0 {
+            self.current_page = self.total_pages - 1;
+            self.table_state.select(Some(0));
+        }
+    }
+
+    /// 총 페이지 수 업데이트
+    pub fn update_total_pages(&mut self, total_items: usize) {
+        self.total_pages = if total_items == 0 {
+            0
+        } else {
+            (total_items + self.page_size - 1) / self.page_size
+        };
+        if self.current_page >= self.total_pages && self.total_pages > 0 {
+            self.current_page = self.total_pages - 1;
+        }
+    }
+
+    /// 컬럼 선택 모드로 전환
+    pub fn enter_column_selection_mode(&mut self) {
+        self.selected_column = Some(0);
+        self.table_state.select(None);
+    }
+
+    /// 행 선택 모드로 전환
+    pub fn enter_row_selection_mode(&mut self) {
+        self.selected_column = None;
+        if !self.sessions.is_empty() {
+            self.table_state.select(Some(0));
+        }
+    }
+
+    /// 컬럼 선택 이동 (왼쪽)
+    pub fn select_column_left(&mut self) {
+        if let Some(col) = self.selected_column {
+            if col > 0 {
+                self.selected_column = Some(col - 1);
+            }
+        }
+    }
+
+    /// 컬럼 선택 이동 (오른쪽)
+    pub fn select_column_right(&mut self) {
+        if let Some(col) = self.selected_column {
+            if col < 18 {
+                self.selected_column = Some(col + 1);
+            }
+        }
+    }
+
+    /// 선택된 컬럼 기준 정렬 토글
+    pub fn toggle_sort(&mut self) {
+        if let Some(col) = self.selected_column {
+            if self.sort_column == Some(col) {
+                self.sort_ascending = !self.sort_ascending;
+            } else {
+                self.sort_column = Some(col);
+                self.sort_ascending = true;
+            }
+        }
+    }
+
+    /// 정렬 해제
+    pub fn clear_sort(&mut self) {
+        self.sort_column = None;
+        self.sort_ascending = true;
+    }
+
+    /// 상세보기 모달 토글
+    pub fn toggle_detail_modal(&mut self) {
+        self.show_detail_modal = !self.show_detail_modal;
+    }
+
+    /// 상세보기 모달 닫기
+    pub fn close_detail_modal(&mut self) {
+        self.show_detail_modal = false;
     }
 }
 

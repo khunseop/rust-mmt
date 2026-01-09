@@ -301,12 +301,21 @@ impl App {
                 let success_count = proxies_to_query.len();
                 let total_count = proxies_to_query.len();
                 
-                self.session_browser.sessions = sessions;
+                // 정렬 적용
+                let mut sorted_sessions = sessions;
+                Self::sort_sessions(&mut sorted_sessions, 
+                    self.session_browser.sort_column, 
+                    self.session_browser.sort_ascending);
+                
+                self.session_browser.sessions = sorted_sessions;
                 let now = chrono::Local::now();
                 self.session_browser.last_query_time = Some(now);
                 
                 self.session_browser.query_status = CollectionStatus::Success;
                 self.session_browser.query_progress = Some((success_count, total_count));
+                
+                // 페이지네이션 업데이트
+                self.session_browser.update_total_pages(self.session_browser.sessions.len());
                 
                 // CSV 저장
                 if !self.session_browser.sessions.is_empty() {
@@ -331,5 +340,99 @@ impl App {
 
         self.session_browser.query_start_time = None;
         Ok(())
+    }
+
+    /// 세션 목록 정렬
+    pub fn sort_sessions(sessions: &mut [crate::app::types::SessionData], column: Option<usize>, ascending: bool) {
+        if let Some(col) = column {
+            match col {
+                0 => sessions.sort_by(|a, b| {
+                    let ord = a.host.cmp(&b.host);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                1 => sessions.sort_by(|a, b| {
+                    let ord = a.transaction.as_ref().unwrap_or(&String::new())
+                        .cmp(b.transaction.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                2 => sessions.sort_by(|a, b| {
+                    let ord = a.creation_time.cmp(&b.creation_time);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                3 => sessions.sort_by(|a, b| {
+                    let ord = a.protocol.as_ref().unwrap_or(&String::new())
+                        .cmp(b.protocol.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                4 => sessions.sort_by(|a, b| {
+                    let ord = a.cust_id.as_ref().unwrap_or(&String::new())
+                        .cmp(b.cust_id.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                5 => sessions.sort_by(|a, b| {
+                    let ord = a.user_name.as_ref().unwrap_or(&String::new())
+                        .cmp(b.user_name.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                6 => sessions.sort_by(|a, b| {
+                    let ord = a.client_ip.cmp(&b.client_ip);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                7 => sessions.sort_by(|a, b| {
+                    let ord = a.client_side_mwg_ip.as_ref().unwrap_or(&String::new())
+                        .cmp(b.client_side_mwg_ip.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                8 => sessions.sort_by(|a, b| {
+                    let ord = a.server_side_mwg_ip.as_ref().unwrap_or(&String::new())
+                        .cmp(b.server_side_mwg_ip.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                9 => sessions.sort_by(|a, b| {
+                    let ord = a.server_ip.as_ref().unwrap_or(&String::new())
+                        .cmp(b.server_ip.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                10 => sessions.sort_by(|a, b| {
+                    let ord = a.cl_bytes_received.cmp(&b.cl_bytes_received);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                11 => sessions.sort_by(|a, b| {
+                    let ord = a.cl_bytes_sent.cmp(&b.cl_bytes_sent);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                12 => sessions.sort_by(|a, b| {
+                    let ord = a.srv_bytes_received.cmp(&b.srv_bytes_received);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                13 => sessions.sort_by(|a, b| {
+                    let ord = a.srv_bytes_sent.cmp(&b.srv_bytes_sent);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                14 => sessions.sort_by(|a, b| {
+                    let ord = a.trxn_index.cmp(&b.trxn_index);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                15 => sessions.sort_by(|a, b| {
+                    let ord = a.age_seconds.cmp(&b.age_seconds);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                16 => sessions.sort_by(|a, b| {
+                    let ord = a.status.as_ref().unwrap_or(&String::new())
+                        .cmp(b.status.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                17 => sessions.sort_by(|a, b| {
+                    let ord = a.in_use.cmp(&b.in_use);
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                18 => sessions.sort_by(|a, b| {
+                    let ord = a.url.as_ref().unwrap_or(&String::new())
+                        .cmp(b.url.as_ref().unwrap_or(&String::new()));
+                    if ascending { ord } else { ord.reverse() }
+                }),
+                _ => {}
+            }
+        }
     }
 }

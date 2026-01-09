@@ -1,18 +1,106 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table},
     Frame,
 };
 
 use crate::app::App;
 use std::collections::HashMap;
 
+/// 컬럼 너비 자동 계산 (URL 제외)
+fn calculate_column_widths(
+    sessions: &[&crate::app::SessionData],
+    available_width: usize,
+    url_min_width: usize,
+) -> Vec<Constraint> {
+    if sessions.is_empty() {
+        // 기본 너비 반환
+        return vec![
+            Constraint::Min(12), Constraint::Min(10), Constraint::Min(19),
+            Constraint::Min(8), Constraint::Min(8), Constraint::Min(10),
+            Constraint::Min(15), Constraint::Min(12), Constraint::Min(12),
+            Constraint::Min(15), Constraint::Min(10), Constraint::Min(10),
+            Constraint::Min(10), Constraint::Min(10), Constraint::Min(8),
+            Constraint::Min(8), Constraint::Min(6), Constraint::Min(6),
+            Constraint::Min(url_min_width.min(u16::MAX as usize) as u16),
+        ];
+    }
+
+    let headers = vec![
+        "호스트", "트랜잭션", "생성시간", "프로토콜", "CustID", "사용자",
+        "클라이언트IP", "CL-MWG-IP", "SRV-MWG-IP", "서버IP",
+        "CL수신", "CL송신", "SRV수신", "SRV송신", "TrxnIdx", "Age(초)",
+        "상태", "InUse", "URL",
+    ];
+
+    let mut max_widths = vec![0; 19];
+
+    // 헤더 길이 고려
+    for (i, header) in headers.iter().enumerate() {
+        max_widths[i] = header.len();
+    }
+
+    // 각 컬럼의 최대 내용 길이 계산
+    for session in sessions {
+        max_widths[0] = max_widths[0].max(session.host.len());
+        max_widths[1] = max_widths[1].max(session.transaction.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[2] = max_widths[2].max(19); // 생성시간은 고정
+        max_widths[3] = max_widths[3].max(session.protocol.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[4] = max_widths[4].max(session.cust_id.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[5] = max_widths[5].max(session.user_name.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[6] = max_widths[6].max(session.client_ip.len());
+        max_widths[7] = max_widths[7].max(session.client_side_mwg_ip.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[8] = max_widths[8].max(session.server_side_mwg_ip.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[9] = max_widths[9].max(session.server_ip.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[10] = max_widths[10].max(session.cl_bytes_received.map(|v| format!("{}", v).len()).unwrap_or(0));
+        max_widths[11] = max_widths[11].max(session.cl_bytes_sent.map(|v| format!("{}", v).len()).unwrap_or(0));
+        max_widths[12] = max_widths[12].max(session.srv_bytes_received.map(|v| format!("{}", v).len()).unwrap_or(0));
+        max_widths[13] = max_widths[13].max(session.srv_bytes_sent.map(|v| format!("{}", v).len()).unwrap_or(0));
+        max_widths[14] = max_widths[14].max(session.trxn_index.map(|v| format!("{}", v).len()).unwrap_or(0));
+        max_widths[15] = max_widths[15].max(session.age_seconds.map(|v| format!("{}", v).len()).unwrap_or(0));
+        max_widths[16] = max_widths[16].max(session.status.as_ref().map(|s| s.len()).unwrap_or(0));
+        max_widths[17] = max_widths[17].max(session.in_use.map(|v| format!("{}", v).len()).unwrap_or(0));
+        // URL은 제외 (고정 너비 사용)
+    }
+
+    // URL을 제외한 총 너비 계산
+    let url_index = 18;
+    let _total_non_url_width: usize = max_widths.iter()
+        .enumerate()
+        .filter(|(i, _)| *i != url_index)
+        .map(|(_, &w)| w.max(8) + 2) // 최소 8자, 패딩 포함
+        .sum();
+
+    let url_width = url_min_width;
+    let _remaining_width = available_width.saturating_sub(url_width + 2); // 테두리 고려
+
+    // Constraint 생성
+    let mut constraints = Vec::new();
+    for (i, &max_w) in max_widths.iter().enumerate() {
+        if i == url_index {
+            constraints.push(Constraint::Min(url_width.min(u16::MAX as usize) as u16));
+        } else {
+            let min_width = max_w.max(8);
+            // 비율 계산 (간단하게 Min 사용, 필요시 Percentage 추가)
+            constraints.push(Constraint::Min(min_width.min(u16::MAX as usize) as u16));
+        }
+    }
+
+    constraints
+}
+
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    // 상세보기 모달이 열려있으면 모달만 표시
+    if app.session_browser.show_detail_modal {
+        draw_detail_modal(frame, app, area);
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // 컨트롤 영역 (그룹선택)
+            Constraint::Length(3),  // 컨트롤 영역
             Constraint::Min(3),     // 데이터 테이블
             Constraint::Length(4),  // 키보드 단축키 도움말
         ])
@@ -25,7 +113,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(18), // 그룹선택
             Constraint::Length(18), // 상태
             Constraint::Length(20), // 마지막조회
-            Constraint::Min(0),     // 나머지
+            Constraint::Min(0),     // 페이지 정보
         ])
         .split(chunks[0]);
     
@@ -87,20 +175,53 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         control_chunks[2],
     );
 
+    // 페이지 정보
+    let total_sessions = app.session_browser.sessions.len();
+    let page_info = if total_sessions > 0 {
+        format!("페이지 {}/{} (총 {}개)", 
+            app.session_browser.current_page + 1,
+            app.session_browser.total_pages.max(1),
+            total_sessions)
+    } else {
+        "페이지 0/0 (0개)".to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(page_info.as_str())
+            .block(Block::default().borders(Borders::ALL).title("페이지"))
+            .style(Style::default().fg(Color::Cyan)),
+        control_chunks[3],
+    );
+
     // 프록시 ID를 그룹으로 매핑하는 HashMap 생성
     let proxy_group_map: HashMap<u32, String> = app.proxies
         .iter()
         .map(|p| (p.id, p.group.clone()))
         .collect();
 
-    // 선택된 그룹에 따라 세션 필터링
+    // 총 개수 먼저 계산 (페이지네이션 업데이트용)
+    let total_filtered = match &app.session_browser.selected_group {
+        None => app.session_browser.sessions.len(),
+        Some(selected_group) => {
+            app.session_browser.sessions
+                .iter()
+                .filter(|session| {
+                    proxy_group_map.get(&session.proxy_id)
+                        .map(|group| group == selected_group)
+                        .unwrap_or(false)
+                })
+                .count()
+        }
+    };
+
+    // 페이지네이션 업데이트
+    app.session_browser.update_total_pages(total_filtered);
+
+    // 선택된 그룹에 따라 세션 필터링 (이미 정렬된 sessions 사용)
     let filtered_sessions: Vec<&crate::app::SessionData> = match &app.session_browser.selected_group {
         None => {
-            // 전체보기
             app.session_browser.sessions.iter().collect()
         }
         Some(selected_group) => {
-            // 선택된 그룹의 프록시들만 필터링
             app.session_browser.sessions
                 .iter()
                 .filter(|session| {
@@ -112,8 +233,17 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     };
 
+    // 페이지네이션 적용
+    let page_start = app.session_browser.current_page * app.session_browser.page_size;
+    let page_end = (page_start + app.session_browser.page_size).min(total_filtered);
+    let paginated_sessions: Vec<&crate::app::SessionData> = if page_start < total_filtered {
+        filtered_sessions[page_start..page_end].iter().copied().collect()
+    } else {
+        Vec::new()
+    };
+
     // 테이블 영역
-    let table = if filtered_sessions.is_empty() {
+    let table = if paginated_sessions.is_empty() {
         let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
         let spinner_char = spinner_chars[app.session_browser.spinner_frame % spinner_chars.len()];
         
@@ -137,7 +267,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         )
         .block(Block::default().borders(Borders::ALL).title("세션 목록"))
     } else {
-        let rows: Vec<Row> = filtered_sessions
+        // 컬럼 너비 계산
+        let table_width = chunks[1].width as usize;
+        let constraints = calculate_column_widths(&paginated_sessions, table_width, 30);
+
+        let rows: Vec<Row> = paginated_sessions
             .iter()
             .enumerate()
             .map(|(i, session)| {
@@ -214,25 +348,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 
         // 컬럼 정의 (모든 컬럼 - 19개)
         let all_columns = vec![
-            ("호스트", Constraint::Length(15)),
-            ("트랜잭션", Constraint::Length(12)),
-            ("생성시간", Constraint::Length(19)),
-            ("프로토콜", Constraint::Length(10)),
-            ("CustID", Constraint::Length(10)),
-            ("사용자", Constraint::Length(12)),
-            ("클라이언트IP", Constraint::Length(15)),
-            ("CL-MWG-IP", Constraint::Length(15)),
-            ("SRV-MWG-IP", Constraint::Length(15)),
-            ("서버IP", Constraint::Length(15)),
-            ("CL수신", Constraint::Length(12)),
-            ("CL송신", Constraint::Length(12)),
-            ("SRV수신", Constraint::Length(12)),
-            ("SRV송신", Constraint::Length(12)),
-            ("TrxnIdx", Constraint::Length(10)),
-            ("Age(초)", Constraint::Length(10)),
-            ("상태", Constraint::Length(8)),
-            ("InUse", Constraint::Length(8)),
-            ("URL", Constraint::Min(30)),
+            "호스트", "트랜잭션", "생성시간", "프로토콜", "CustID", "사용자",
+            "클라이언트IP", "CL-MWG-IP", "SRV-MWG-IP", "서버IP",
+            "CL수신", "CL송신", "SRV수신", "SRV송신", "TrxnIdx", "Age(초)",
+            "상태", "InUse", "URL",
         ];
 
         // 표시할 컬럼 선택 (최대 10개)
@@ -245,16 +364,43 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             &[]
         };
 
-        let constraints: Vec<Constraint> = visible_columns.iter().map(|(_, c)| *c).collect();
-        let header_cells: Vec<Cell> = visible_columns.iter().map(|(name, _)| {
-            Cell::from(*name).style(Style::default().add_modifier(Modifier::BOLD))
+        let visible_constraints: Vec<Constraint> = if start_idx < constraints.len() {
+            constraints[start_idx..end_idx.min(constraints.len())].to_vec()
+        } else {
+            vec![Constraint::Percentage(100)]
+        };
+
+        // 헤더 생성 (정렬 표시 포함)
+        let header_cells: Vec<Cell> = visible_columns.iter().enumerate().map(|(idx, name)| {
+            let col_idx = start_idx + idx;
+            let mut header_text = (*name).to_string();
+            
+            // 정렬 표시 추가
+            if app.session_browser.sort_column == Some(col_idx) {
+                if app.session_browser.sort_ascending {
+                    header_text.push_str(" ↑");
+                } else {
+                    header_text.push_str(" ↓");
+                }
+            }
+            
+            // 컬럼 선택 모드일 때 하이라이트
+            let style = if app.session_browser.selected_column == Some(col_idx) {
+                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)
+            } else {
+                Style::default().add_modifier(Modifier::BOLD)
+            };
+            
+            Cell::from(header_text).style(style)
         }).collect();
 
-        Table::new(rows, constraints)
+        Table::new(rows, visible_constraints)
         .header(Row::new(header_cells))
         .block(Block::default().borders(Borders::ALL).title(format!(
-            "세션 목록 (총 {}개)",
-            filtered_sessions.len()
+            "세션 목록 (총 {}개, 페이지 {}/{})",
+            filtered_sessions.len(),
+            app.session_browser.current_page + 1,
+            app.session_browser.total_pages.max(1)
         )))
         .highlight_style(Style::default().bg(Color::Blue))
         .highlight_symbol(">> ")
@@ -265,9 +411,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // 키보드 단축키 도움말
     let total_columns = 19;
     let current_col = app.session_browser.column_offset + 1;
+    let mode_text = if app.session_browser.selected_column.is_some() {
+        " [컬럼선택모드]"
+    } else {
+        ""
+    };
     let help_text = vec![
-        format!("Tab: 탭전환 | q/Esc: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회", 
-            current_col, total_columns),
+        format!("Tab: 컬럼선택/탭전환 | q/Esc: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회 | Enter: 상세보기{}", 
+            current_col, total_columns, mode_text),
+        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home: 첫페이지 | End: 마지막페이지"),
     ];
     frame.render_widget(
         Paragraph::new(help_text.join("\n"))
@@ -275,4 +427,94 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().fg(Color::Gray)),
         chunks[2],
     );
+}
+
+/// 상세보기 모달 렌더링
+fn draw_detail_modal(frame: &mut Frame, app: &mut App, area: Rect) {
+    let popup_area = centered_rect(80, 60, area);
+    
+    let selected_idx = app.session_browser.table_state.selected();
+    let filtered_sessions: Vec<&crate::app::SessionData> = match &app.session_browser.selected_group {
+        None => app.session_browser.sessions.iter().collect(),
+        Some(selected_group) => {
+            let proxy_group_map: HashMap<u32, String> = app.proxies
+                .iter()
+                .map(|p| (p.id, p.group.clone()))
+                .collect();
+            app.session_browser.sessions
+                .iter()
+                .filter(|session| {
+                    proxy_group_map.get(&session.proxy_id)
+                        .map(|group| group == selected_group)
+                        .unwrap_or(false)
+                })
+                .collect()
+        }
+    };
+
+    // 페이지네이션 적용
+    let page_start = app.session_browser.current_page * app.session_browser.page_size;
+    let page_end = (page_start + app.session_browser.page_size).min(filtered_sessions.len());
+    let paginated_sessions: Vec<&crate::app::SessionData> = if page_start < filtered_sessions.len() {
+        filtered_sessions[page_start..page_end].iter().copied().collect()
+    } else {
+        Vec::new()
+    };
+
+    if let Some(idx) = selected_idx {
+        if let Some(session) = paginated_sessions.get(idx) {
+            let items: Vec<ListItem> = vec![
+                ListItem::new(format!("호스트: {}", session.host)),
+                ListItem::new(format!("트랜잭션: {}", session.transaction.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("생성시간: {}", session.creation_time
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("프로토콜: {}", session.protocol.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("CustID: {}", session.cust_id.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("사용자: {}", session.user_name.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("클라이언트IP: {}", session.client_ip)),
+                ListItem::new(format!("CL-MWG-IP: {}", session.client_side_mwg_ip.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("SRV-MWG-IP: {}", session.server_side_mwg_ip.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("서버IP: {}", session.server_ip.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("CL수신: {}", session.cl_bytes_received.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("CL송신: {}", session.cl_bytes_sent.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("SRV수신: {}", session.srv_bytes_received.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("SRV송신: {}", session.srv_bytes_sent.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("TrxnIdx: {}", session.trxn_index.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("Age(초): {}", session.age_seconds.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("상태: {}", session.status.as_ref().unwrap_or(&"N/A".to_string()))),
+                ListItem::new(format!("InUse: {}", session.in_use.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string()))),
+                ListItem::new(format!("URL: {}", session.url.as_ref().unwrap_or(&"N/A".to_string()))),
+            ];
+
+            let list = List::new(items)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .title("세션 상세 정보 [Esc: 닫기]"))
+                .style(Style::default().fg(Color::White));
+
+            frame.render_widget(list, popup_area);
+        }
+    }
+}
+
+/// 중앙에 위치한 사각형 계산
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(ratatui::layout::Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
