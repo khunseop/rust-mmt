@@ -94,6 +94,8 @@ pub struct SessionData {
     pub server_ip: Option<String>,
     pub url: Option<String>,
     pub protocol: Option<String>,
+    pub transaction: Option<String>, // 트랜잭션 ID
+    pub creation_time: Option<chrono::DateTime<chrono::Local>>, // 생성 시간
 }
 
 /// 수집 상태
@@ -817,8 +819,12 @@ impl App {
         self.session_browser.query_progress = Some((0, proxies_to_query.len()));
         self.session_browser.query_start_time = Some(chrono::Local::now());
 
+        // 세션 브라우저 설정 로드 (기본값 사용)
+        let config = crate::session_collector::SessionBrowserConfig::default();
+        let collector = crate::session_collector::SessionCollector::new(config);
+
         // 세션 조회 실행
-        match crate::session_collector::SessionCollector::query_multiple(&proxies_to_query).await {
+        match collector.query_multiple(&proxies_to_query).await {
             Ok(sessions) => {
                 let success_count = proxies_to_query.len();
                 let total_count = proxies_to_query.len();

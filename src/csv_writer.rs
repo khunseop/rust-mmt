@@ -183,24 +183,32 @@ impl CsvWriter {
             "timestamp",
             "proxy_id",
             "host",
+            "transaction",
+            "creation_time",
+            "protocol",
             "client_ip",
             "server_ip",
             "url",
-            "protocol",
         ])
         .context("Failed to write CSV header")?;
 
         // 데이터 작성
         let timestamp_str = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         for session in sessions {
+            let creation_time_str = session.creation_time
+                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_default();
+            
             wtr.write_record(&[
                 timestamp_str.clone(),
                 session.proxy_id.to_string(),
                 session.host.clone(),
+                session.transaction.as_ref().unwrap_or(&String::new()).clone(),
+                creation_time_str,
+                session.protocol.as_ref().unwrap_or(&String::new()).clone(),
                 session.client_ip.clone(),
                 session.server_ip.as_ref().unwrap_or(&String::new()).clone(),
                 session.url.as_ref().unwrap_or(&String::new()).clone(),
-                session.protocol.as_ref().unwrap_or(&String::new()).clone(),
             ])
             .context("Failed to write CSV record")?;
         }
