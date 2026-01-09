@@ -23,9 +23,11 @@ fn setup_windows_console() -> Result<(), Box<dyn Error>> {
     // Windows에서 UTF-8 코드 페이지 설정
     // 이렇게 하면 cmd에서도 한글이 제대로 표시됩니다
     unsafe {
+        use windows_sys::Win32::Foundation::STD_OUTPUT_HANDLE;
+        use windows_sys::Win32::Globalization::CP_UTF8;
         use windows_sys::Win32::System::Console::{
-            GetStdHandle, GetConsoleMode, SetConsoleMode, SetConsoleOutputCP, SetConsoleCP,
-            CP_UTF8, STD_OUTPUT_HANDLE, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+            GetConsoleMode, GetStdHandle, SetConsoleCP, SetConsoleMode, SetConsoleOutputCP,
+            ENABLE_VIRTUAL_TERMINAL_PROCESSING,
         };
         
         // UTF-8 코드 페이지 설정
