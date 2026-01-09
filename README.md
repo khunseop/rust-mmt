@@ -11,6 +11,11 @@ MWG 프록시 서버 모니터링 도구의 Rust + Ratatui 버전입니다.
   - 그룹별 필터링 지원
   - 인터페이스(회선) 트래픽 모니터링
 - **세션 브라우저**: SSH를 통한 활성 세션 조회
+  - MWG 명령어 기반 세션 조회 (`/opt/mwg/bin/mwg-core -S connections`)
+  - 19개 필드 파싱 및 표시 (트랜잭션, 생성시간, 프로토콜, 클라이언트IP, 서버IP, URL 등)
+  - 가로 스크롤 기능 (좌우 화살표키)
+  - 그룹별 필터링 지원
+  - CSV 저장 기능
 - **트래픽 로그 분석**: 프록시 로그 분석 및 통계
 
 ## 설치 및 실행
@@ -110,6 +115,12 @@ cargo run
 - `+` / `-`: 수집 주기 증가/감소
 - `Shift+←` / `Shift+→`: 그룹 선택 (전체보기 포함)
 
+#### 세션브라우저 탭
+- `S`: 세션 조회 시작
+- `←` / `→`: 컬럼 스크롤 (가로 스크롤)
+- `Shift+←` / `Shift+→`: 그룹 선택
+- `↑` / `↓`: 행 이동
+
 ### 탭 설명
 
 1. **프록시관리**: 프록시 서버 목록 및 그룹 관리
@@ -119,6 +130,11 @@ cargo run
    - 그룹별 필터링
    - 인터페이스(회선) 트래픽 모니터링
 3. **세션브라우저**: 활성 세션 조회 및 필터링
+   - SSH를 통한 실시간 세션 조회
+   - 19개 필드 표시 (호스트, 트랜잭션, 생성시간, 프로토콜, CustID, 사용자, 클라이언트IP, 서버IP, URL 등)
+   - 가로 스크롤로 모든 컬럼 확인 가능
+   - 그룹별 필터링
+   - 조회 결과 CSV 저장
 4. **트래픽로그**: 트래픽 로그 분석 및 통계
 
 ## 로그 파일
@@ -133,21 +149,37 @@ cargo run
 
 ```
 src/
-├── main.rs          # 진입점
-├── app.rs           # 앱 상태 관리
-├── ui.rs            # UI 렌더링 로직
-└── crossterm.rs     # 터미널 설정 및 이벤트 처리
+├── main.rs                    # 진입점
+├── app/                       # 앱 상태 관리 모듈
+│   ├── mod.rs
+│   ├── app.rs                 # App 구조체 및 메인 로직
+│   ├── states.rs              # 각 탭 상태 구조체
+│   ├── types.rs               # 공통 타입 정의
+│   └── config.rs              # 설정 파일 로드 헬퍼
+├── ui/                        # UI 렌더링 모듈
+│   ├── mod.rs
+│   ├── proxy_management.rs   # 프록시 관리 탭 UI
+│   ├── resource_usage.rs     # 자원 사용률 탭 UI
+│   ├── session_browser.rs     # 세션 브라우저 탭 UI
+│   ├── traffic_logs.rs        # 트래픽 로그 탭 UI
+│   └── config.rs              # UI 설정 헬퍼
+├── crossterm.rs               # 터미널 제어 및 이벤트 처리
+├── snmp.rs                    # SNMP 클라이언트
+├── ssh.rs                     # SSH 클라이언트
+├── collector.rs               # 자원 수집기
+├── session_collector.rs       # 세션 조회기
+└── csv_writer.rs              # CSV 저장 기능
 
-config/              # 설정 파일
+config/                        # 설정 파일
 ├── proxies.json
 └── resource_config.json
 
-logs/                # 결과 파일 (CSV)
+logs/                          # 결과 파일 (CSV)
 ```
 
 ## 개발 상태
 
-**현재 진행률: 60%** (Phase 1, Phase 2 완료)
+**현재 진행률: 75%** (Phase 1, Phase 2, Phase 3 완료)
 
 ### ✅ Phase 1: 기본 구조 및 탭 UI (완료)
 - ✅ 기본 TUI 구조
@@ -166,7 +198,16 @@ logs/                # 결과 파일 (CSV)
 - ✅ 임계치 기반 색상 표시
 - ✅ 그룹별 필터링
 
-### 📋 Phase 3: 세션 브라우저 (대기 중)
+### ✅ Phase 3: 세션 브라우저 (완료)
+- ✅ SSH를 통한 세션 조회
+- ✅ MWG 명령어 실행 (`/opt/mwg/bin/mwg-core -S connections`)
+- ✅ 파이프 구분 형식 파싱 (19개 필드 모두 파싱)
+- ✅ Table 위젯에 세션 목록 표시
+- ✅ 가로 스크롤 기능 (좌우 화살표키)
+- ✅ 로딩 인디케이터 (스피너 애니메이션)
+- ✅ 그룹별 필터링
+- ✅ CSV 저장 (모든 필드 포함)
+
 ### 📋 Phase 4: 트래픽 로그 분석 (대기 중)
 
 자세한 진행 상황은 [PROGRESS.md](./PROGRESS.md)를 참고하세요.

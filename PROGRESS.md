@@ -2,7 +2,7 @@
 
 ## 전체 진행 상황
 
-**전체 진행률: 60%** (Phase 1 완료, Phase 2 완료)
+**전체 진행률: 75%** (Phase 1 완료, Phase 2 완료, Phase 3 완료)
 
 ---
 
@@ -163,34 +163,63 @@ $ cargo run
 
 ---
 
-### 📋 Phase 3: 세션 브라우저 (대기 중)
+### ✅ Phase 3: 세션 브라우저 (완료)
 
-**진행률: 0%**
+**진행률: 100%**
 
-#### 계획된 작업
+#### 완료된 작업
 
-1. **SSH 세션 조회**
-   - [ ] 프록시 서버에 SSH 접속
-   - [ ] 세션 조회 명령 실행 (MWG 명령어)
-   - [ ] 출력 파싱
+1. **SSH 세션 조회** (완료)
+   - [x] 세션 조회기 모듈 생성 (src/session_collector.rs)
+   - [x] MWG 명령어 실행 (`/opt/mwg/bin/mwg-core -S connections`)
+   - [x] SSH를 통한 세션 조회 구현
+   - [x] 여러 프록시 병렬 조회 지원
+   - [x] 타임아웃 처리 구현
 
-2. **세션 데이터 파싱**
-   - [ ] 세션 정보 추출 (트랜잭션, 클라이언트 IP, URL 등)
-   - [ ] 데이터 구조화
+2. **세션 데이터 파싱** (완료)
+   - [x] 파이프 구분 형식 파싱 (기존 Python 앱 로직 포팅)
+   - [x] 모든 필드 파싱 (19개 필드)
+     - transaction, creation_time, protocol, cust_id, user_name
+     - client_ip, client_side_mwg_ip, server_side_mwg_ip, server_ip
+     - cl_bytes_received, cl_bytes_sent, srv_bytes_received, srv_bytes_sent
+     - trxn_index, age_seconds, status, in_use, url
+   - [x] Creation Time 파싱 (NaiveDateTime 사용)
+   - [x] Client IP 포트 제거 로직
 
-3. **UI 통합**
-   - [ ] 조회 버튼/키 바인딩 (예: 'S' 키)
-   - [ ] Table 위젯에 세션 목록 표시
-   - [ ] 필터링 기능 (텍스트 검색)
+3. **UI 통합** (완료)
+   - [x] 조회 키 바인딩 ('S' 키)
+   - [x] Table 위젯에 세션 목록 표시
+   - [x] 19개 컬럼 모두 표시 (가로 스크롤 지원)
+   - [x] 좌우 화살표키로 컬럼 스크롤 (세션 브라우저 탭에서만)
+   - [x] 그룹별 필터링 (Shift+←/→)
+   - [x] 로딩 인디케이터 (스피너 애니메이션)
+   - [x] 조회 상태 표시 (대기중, 조회중, 완료, 실패)
+   - [x] 마지막 조회 시간 표시
+   - [x] 에러 메시지 표시
 
-4. **CSV 저장**
-   - [ ] 세션 데이터 CSV 저장
+4. **CSV 저장** (완료)
+   - [x] 세션 데이터 CSV 저장 (모든 필드 포함)
+   - [x] 타임스탬프 포함 파일명 (`sessions_YYYYMMDD_HHMMSS.csv`)
 
-#### 예상 소요 시간
+5. **성능 개선** (완료)
+   - [x] tick_rate 250ms → 50ms로 변경 (더 빠른 반응)
+   - [x] 한 번에 최대 10개 컬럼 표시
+   - [x] 컬럼 스크롤 최적화
 
-- SSH 세션 조회: 2일
-- 파싱 및 UI 통합: 2일
-- **총 예상: 4일**
+#### 남은 작업
+
+1. **검색 및 필터링**
+   - [ ] 텍스트 검색 기능
+   - [ ] 컬럼별 필터링
+   - [ ] 정렬 기능
+
+2. **페이지네이션**
+   - [ ] 대용량 세션 목록 처리
+   - [ ] 페이지 단위 표시
+
+3. **테스트 및 검증**
+   - [ ] 실제 MWG 프록시 서버와의 통신 테스트
+   - [ ] 세션 파싱 정확도 검증
 
 ---
 
@@ -243,10 +272,10 @@ $ cargo run
 ### ✅ 추가 완료
 
 - SNMP 구현: BER 인코딩/디코딩 직접 구현 완료
-- SSH 라이브러리: `russh` (순수 Rust) 통합 완료
-- `russh-keys`: SSH 키 관리
-- `async-trait`: 비동기 트레이트 지원
-- `rand`: 랜덤 값 생성 (russh 의존성)
+- SSH 라이브러리: `ssh2` 크레이트 통합 완료
+- `regex`: 정규식 패턴 매칭 (세션 파싱용)
+- `csv`: CSV 파일 읽기/쓰기
+- `chrono`: 시간 처리 및 파싱
 
 ---
 
@@ -255,46 +284,56 @@ $ cargo run
 ```
 rust-mmt/
 ├── src/
-│   ├── main.rs          ✅ 완료
-│   ├── app.rs           ✅ 완료
-│   ├── ui.rs            ✅ 완료
-│   ├── crossterm.rs     ✅ 완료
-│   ├── snmp.rs          ✅ 완료 (기본 구조)
-│   ├── ssh.rs           ✅ 완료 (기본 구조)
-│   ├── collector.rs     ✅ 완료
-│   └── csv_writer.rs    ✅ 완료
+│   ├── main.rs                    ✅ 완료
+│   ├── app/                       ✅ 모듈화 완료
+│   │   ├── mod.rs                 ✅ 앱 모듈 진입점
+│   │   ├── app.rs                 ✅ App 구조체 및 메인 로직
+│   │   ├── states.rs              ✅ 각 탭 상태 구조체
+│   │   ├── types.rs               ✅ 공통 타입 정의
+│   │   └── config.rs              ✅ 설정 파일 로드
+│   ├── ui/                        ✅ 모듈화 완료
+│   │   ├── mod.rs                 ✅ UI 모듈 진입점
+│   │   ├── proxy_management.rs    ✅ 프록시 관리 탭 UI
+│   │   ├── resource_usage.rs       ✅ 자원 사용률 탭 UI
+│   │   ├── session_browser.rs     ✅ 세션 브라우저 탭 UI
+│   │   ├── traffic_logs.rs        ✅ 트래픽 로그 탭 UI
+│   │   └── config.rs              ✅ UI 설정 헬퍼
+│   ├── crossterm.rs               ✅ 완료 (터미널 제어 및 이벤트 처리)
+│   ├── snmp.rs                    ✅ 완료 (SNMP 클라이언트)
+│   ├── ssh.rs                     ✅ 완료 (SSH 클라이언트)
+│   ├── collector.rs               ✅ 완료 (자원 수집기)
+│   ├── session_collector.rs       ✅ 완료 (세션 조회기)
+│   └── csv_writer.rs              ✅ 완료 (CSV 저장)
 ├── config/
-│   ├── proxies.json     ✅ 완료 (예제, snmp_community 제거됨)
-│   └── resource_config.json ✅ 완료 (예제, SNMP 버전 및 인터페이스 OID 추가)
-├── logs/                ✅ 생성됨 (CSV 파일 저장됨)
-├── Cargo.toml           ✅ 완료
-├── README.md            ✅ 완료
-├── ANALYSIS.md          ✅ 완료
-├── MONITORING_GUIDE.md  ✅ 완료 (모니터링 설정 가이드)
-└── PROGRESS.md          ✅ 완료 (이 문서)
+│   ├── proxies.json               ✅ 완료 (예제, snmp_community 제거됨)
+│   └── resource_config.json       ✅ 완료 (예제, SNMP 버전 및 인터페이스 OID 추가)
+├── logs/                          ✅ 생성됨 (CSV 파일 저장됨)
+├── Cargo.toml                     ✅ 완료
+├── README.md                      ✅ 완료
+├── ANALYSIS.md                    ✅ 완료
+├── MONITORING_GUIDE.md            ✅ 완료 (모니터링 설정 가이드)
+└── PROGRESS.md                    ✅ 완료 (이 문서)
 ```
 
 ---
 
-## 다음 단계 (Phase 2 시작)
+## 다음 단계 (Phase 4 시작)
 
 ### 우선순위
 
-1. **SNMP 라이브러리 선택 및 통합**
-   - 라이브러리 비교 및 선택
-   - 기본 SNMP GET 테스트
+1. **트래픽 로그 분석 기능 구현**
+   - SSH를 통한 원격 로그 조회
+   - 로그 파일 업로드 처리
+   - 로그 파싱 및 분석
 
-2. **프록시 설정 읽기 검증**
-   - 설정 파일 로드 테스트
-   - 프록시 목록 표시
+2. **세션 브라우저 기능 개선**
+   - 검색 및 필터링 기능
+   - 정렬 기능
+   - 페이지네이션
 
-3. **기본 SNMP 수집 구현**
-   - 단일 프록시 SNMP 수집 테스트
-   - CPU 지표 수집
-
-4. **UI에 데이터 표시**
-   - 수집된 데이터를 Table에 표시
-   - 실시간 업데이트
+3. **성능 최적화**
+   - 대용량 데이터 처리
+   - 메모리 사용량 최적화
 
 ---
 
@@ -360,6 +399,17 @@ Phase 1은 정상적으로 완료되었습니다.
   - 색상 규칙: 하얀색(정상), 노란색(경고), 빨간색(위험)
   - 임계치 설정 파일에서 읽어오기 기능 구현
 
+- **2024-01-XX**: Phase 3 완료 (100%)
+  - 세션 브라우저 기능 구현 완료
+  - MWG 명령어 기반 세션 조회 (`/opt/mwg/bin/mwg-core -S connections`)
+  - 파이프 구분 형식 파싱 (기존 Python 앱 로직 포팅)
+  - 19개 필드 모두 파싱 및 표시
+  - 가로 스크롤 기능 (좌우 화살표키)
+  - 로딩 인디케이터 (스피너 애니메이션)
+  - CSV 저장 (모든 필드 포함)
+  - 성능 개선 (tick_rate 50ms)
+  - 코드 모듈화 (app/, ui/ 디렉토리로 분리)
+
 ---
 
 ## 체크리스트
@@ -392,11 +442,17 @@ Phase 1은 정상적으로 완료되었습니다.
 - [x] 모든 컬럼에 임계치 색상 적용
 - [ ] 실제 환경 테스트 및 검증
 
-### Phase 3
-- [ ] SSH 세션 조회
-- [ ] 세션 파싱
-- [ ] UI 통합
-- [ ] CSV 저장
+### Phase 3 (완료 - 100%)
+- [x] SSH 세션 조회
+- [x] 세션 파싱 (19개 필드 모두 파싱)
+- [x] UI 통합 (19개 컬럼 표시, 가로 스크롤)
+- [x] CSV 저장 (모든 필드 포함)
+- [x] 로딩 인디케이터
+- [x] 컬럼 스크롤 기능
+- [x] 성능 개선 (tick_rate 50ms)
+- [ ] 검색 및 필터링 (다음 단계)
+- [ ] 정렬 기능 (다음 단계)
+- [ ] 페이지네이션 (다음 단계)
 
 ### Phase 4
 - [ ] 로그 조회
