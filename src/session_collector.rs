@@ -148,8 +148,8 @@ impl SessionCollector {
 
             // 필드 추출 (기존 Python 코드의 순서대로)
             let protocol = get_after(2);
-            let _cust_id = get_after(3);
-            let _user_name = get_after(4);
+            let cust_id = get_after(3);
+            let user_name = get_after(4);
             let client_ip_raw = get_after(5);
             
             // Client IP에서 포트 제거 (예: "1.2.3.4:56789" -> "1.2.3.4")
@@ -162,17 +162,17 @@ impl SessionCollector {
                 }
             });
 
-            let _client_side_mwg_ip = get_after(6);
-            let _server_side_mwg_ip = get_after(7);
+            let client_side_mwg_ip = get_after(6);
+            let server_side_mwg_ip = get_after(7);
             let server_ip = get_after(8);
-            let _cl_bytes_received = to_int(get_after(9));
-            let _cl_bytes_sent = to_int(get_after(10));
-            let _srv_bytes_received = to_int(get_after(11));
-            let _srv_bytes_sent = to_int(get_after(12));
-            let _trxn_index = to_int(get_after(13));
-            let _age_seconds = to_int(get_after(14));
-            let _status = get_after(15);
-            let _in_use = to_int(get_after(16));
+            let cl_bytes_received = to_int(get_after(9));
+            let cl_bytes_sent = to_int(get_after(10));
+            let srv_bytes_received = to_int(get_after(11));
+            let srv_bytes_sent = to_int(get_after(12));
+            let trxn_index = to_int(get_after(13));
+            let age_seconds = to_int(get_after(14));
+            let status = get_after(15);
+            let in_use = to_int(get_after(16));
             let mut url = get_after(17);
 
             // URL이 없으면 마지막 필드에서 찾기
@@ -190,12 +190,24 @@ impl SessionCollector {
                 sessions.push(SessionData {
                     proxy_id: proxy.id,
                     host: proxy.host.clone(),
-                    client_ip,
-                    server_ip,
-                    url,
-                    protocol,
                     transaction,
                     creation_time,
+                    protocol,
+                    cust_id,
+                    user_name,
+                    client_ip,
+                    client_side_mwg_ip,
+                    server_side_mwg_ip,
+                    server_ip,
+                    cl_bytes_received,
+                    cl_bytes_sent,
+                    srv_bytes_received,
+                    srv_bytes_sent,
+                    trxn_index,
+                    age_seconds,
+                    status,
+                    in_use,
+                    url,
                 });
             }
         }

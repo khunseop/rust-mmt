@@ -90,12 +90,24 @@ pub struct ResourceData {
 pub struct SessionData {
     pub proxy_id: u32,
     pub host: String,
-    pub client_ip: String,
-    pub server_ip: Option<String>,
-    pub url: Option<String>,
-    pub protocol: Option<String>,
     pub transaction: Option<String>, // 트랜잭션 ID
     pub creation_time: Option<chrono::DateTime<chrono::Local>>, // 생성 시간
+    pub protocol: Option<String>,
+    pub cust_id: Option<String>,
+    pub user_name: Option<String>,
+    pub client_ip: String,
+    pub client_side_mwg_ip: Option<String>,
+    pub server_side_mwg_ip: Option<String>,
+    pub server_ip: Option<String>,
+    pub cl_bytes_received: Option<i64>, // 클라이언트 수신 바이트
+    pub cl_bytes_sent: Option<i64>, // 클라이언트 송신 바이트
+    pub srv_bytes_received: Option<i64>, // 서버 수신 바이트
+    pub srv_bytes_sent: Option<i64>, // 서버 송신 바이트
+    pub trxn_index: Option<i64>, // 트랜잭션 인덱스
+    pub age_seconds: Option<i64>, // 세션 나이 (초)
+    pub status: Option<String>, // 상태
+    pub in_use: Option<i64>, // 사용 중 여부
+    pub url: Option<String>,
 }
 
 /// 수집 상태

@@ -178,7 +178,7 @@ impl CsvWriter {
         let mut wtr = csv::Writer::from_path(&filepath)
             .context("Failed to create CSV file")?;
 
-        // 헤더 작성
+        // 헤더 작성 (모든 필드 포함)
         wtr.write_record(&[
             "timestamp",
             "proxy_id",
@@ -186,8 +186,20 @@ impl CsvWriter {
             "transaction",
             "creation_time",
             "protocol",
+            "cust_id",
+            "user_name",
             "client_ip",
+            "client_side_mwg_ip",
+            "server_side_mwg_ip",
             "server_ip",
+            "cl_bytes_received",
+            "cl_bytes_sent",
+            "srv_bytes_received",
+            "srv_bytes_sent",
+            "trxn_index",
+            "age_seconds",
+            "status",
+            "in_use",
             "url",
         ])
         .context("Failed to write CSV header")?;
@@ -206,8 +218,20 @@ impl CsvWriter {
                 session.transaction.as_ref().unwrap_or(&String::new()).clone(),
                 creation_time_str,
                 session.protocol.as_ref().unwrap_or(&String::new()).clone(),
+                session.cust_id.as_ref().unwrap_or(&String::new()).clone(),
+                session.user_name.as_ref().unwrap_or(&String::new()).clone(),
                 session.client_ip.clone(),
+                session.client_side_mwg_ip.as_ref().unwrap_or(&String::new()).clone(),
+                session.server_side_mwg_ip.as_ref().unwrap_or(&String::new()).clone(),
                 session.server_ip.as_ref().unwrap_or(&String::new()).clone(),
+                session.cl_bytes_received.map(|v| v.to_string()).unwrap_or_default(),
+                session.cl_bytes_sent.map(|v| v.to_string()).unwrap_or_default(),
+                session.srv_bytes_received.map(|v| v.to_string()).unwrap_or_default(),
+                session.srv_bytes_sent.map(|v| v.to_string()).unwrap_or_default(),
+                session.trxn_index.map(|v| v.to_string()).unwrap_or_default(),
+                session.age_seconds.map(|v| v.to_string()).unwrap_or_default(),
+                session.status.as_ref().unwrap_or(&String::new()).clone(),
+                session.in_use.map(|v| v.to_string()).unwrap_or_default(),
                 session.url.as_ref().unwrap_or(&String::new()).clone(),
             ])
             .context("Failed to write CSV record")?;

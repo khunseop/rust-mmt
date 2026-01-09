@@ -783,30 +783,54 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
                     .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| "N/A".to_string());
                 let protocol = session.protocol.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let cust_id = session.cust_id.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let user_name = session.user_name.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
                 let client_ip = session.client_ip.clone();
+                let client_side_mwg_ip = session.client_side_mwg_ip.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let server_side_mwg_ip = session.server_side_mwg_ip.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
                 let server_ip = session.server_ip.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let cl_bytes_received = session.cl_bytes_received.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string());
+                let cl_bytes_sent = session.cl_bytes_sent.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string());
+                let srv_bytes_received = session.srv_bytes_received.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string());
+                let srv_bytes_sent = session.srv_bytes_sent.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string());
+                let trxn_index = session.trxn_index.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string());
+                let age_seconds = session.age_seconds.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string());
+                let status = session.status.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let in_use = session.in_use.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string());
                 let url_display = session.url.as_ref().map(|s| {
-                    if s.len() > 60 {
-                        format!("{}...", &s[..57])
+                    if s.len() > 50 {
+                        format!("{}...", &s[..47])
                     } else {
                         s.clone()
                     }
                 }).unwrap_or_else(|| "N/A".to_string());
 
-                // 모든 컬럼 데이터
+                // 모든 컬럼 데이터 (18개 컬럼)
                 let all_cells = vec![
                     Cell::from(session.host.clone()).style(style),
                     Cell::from(transaction).style(style),
                     Cell::from(creation_time.clone()).style(style),
                     Cell::from(protocol).style(style),
+                    Cell::from(cust_id).style(style),
+                    Cell::from(user_name).style(style),
                     Cell::from(client_ip.clone()).style(style),
+                    Cell::from(client_side_mwg_ip).style(style),
+                    Cell::from(server_side_mwg_ip).style(style),
                     Cell::from(server_ip).style(style),
+                    Cell::from(cl_bytes_received.clone()).style(style),
+                    Cell::from(cl_bytes_sent.clone()).style(style),
+                    Cell::from(srv_bytes_received.clone()).style(style),
+                    Cell::from(srv_bytes_sent.clone()).style(style),
+                    Cell::from(trxn_index.clone()).style(style),
+                    Cell::from(age_seconds.clone()).style(style),
+                    Cell::from(status).style(style),
+                    Cell::from(in_use.clone()).style(style),
                     Cell::from(url_display).style(style),
                 ];
 
                 // 컬럼 오프셋에 따라 표시할 컬럼 선택
                 let start_idx = app.session_browser.column_offset.min(all_cells.len());
-                let end_idx = (start_idx + 7).min(all_cells.len()); // 최대 7개 컬럼 표시
+                let end_idx = (start_idx + 8).min(all_cells.len()); // 최대 8개 컬럼 표시
                 let visible_cells = if start_idx < all_cells.len() {
                     all_cells[start_idx..end_idx].to_vec()
                 } else {
@@ -817,20 +841,32 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
             })
             .collect();
 
-        // 컬럼 정의 (모든 컬럼)
+        // 컬럼 정의 (모든 컬럼 - 19개)
         let all_columns = vec![
-            ("호스트", Constraint::Length(18)),
-            ("트랜잭션", Constraint::Length(15)),
+            ("호스트", Constraint::Length(15)),
+            ("트랜잭션", Constraint::Length(12)),
             ("생성시간", Constraint::Length(19)),
             ("프로토콜", Constraint::Length(10)),
-            ("클라이언트IP", Constraint::Length(18)),
-            ("서버IP", Constraint::Length(18)),
+            ("CustID", Constraint::Length(10)),
+            ("사용자", Constraint::Length(12)),
+            ("클라이언트IP", Constraint::Length(15)),
+            ("CL-MWG-IP", Constraint::Length(15)),
+            ("SRV-MWG-IP", Constraint::Length(15)),
+            ("서버IP", Constraint::Length(15)),
+            ("CL수신", Constraint::Length(12)),
+            ("CL송신", Constraint::Length(12)),
+            ("SRV수신", Constraint::Length(12)),
+            ("SRV송신", Constraint::Length(12)),
+            ("TrxnIdx", Constraint::Length(10)),
+            ("Age(초)", Constraint::Length(10)),
+            ("상태", Constraint::Length(8)),
+            ("InUse", Constraint::Length(8)),
             ("URL", Constraint::Min(30)),
         ];
 
         // 표시할 컬럼 선택
         let start_idx = app.session_browser.column_offset.min(all_columns.len());
-        let end_idx = (start_idx + 7).min(all_columns.len());
+        let end_idx = (start_idx + 8).min(all_columns.len());
         let visible_columns = if start_idx < all_columns.len() {
             &all_columns[start_idx..end_idx]
         } else {
@@ -855,7 +891,7 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(table, chunks[1], &mut app.session_browser.table_state);
 
     // 키보드 단축키 도움말
-    let total_columns = 7;
+    let total_columns = 19;
     let current_col = app.session_browser.column_offset + 1;
     let help_text = vec![
         format!("Tab: 탭전환 | q/Esc: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회", 
