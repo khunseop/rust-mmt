@@ -389,6 +389,7 @@ pub struct SessionBrowserState {
     pub last_query_time: Option<chrono::DateTime<chrono::Local>>,
     pub last_error: Option<String>, // 마지막 에러 메시지
     pub query_start_time: Option<chrono::DateTime<chrono::Local>>,
+    pub spinner_frame: usize, // 스피너 애니메이션 프레임
 }
 
 impl SessionBrowserState {
@@ -404,6 +405,7 @@ impl SessionBrowserState {
             last_query_time: None,
             last_error: None,
             query_start_time: None,
+            spinner_frame: 0,
         }
     }
 
@@ -523,7 +525,6 @@ pub struct App {
     pub session_browser: SessionBrowserState,
     pub traffic_logs: TrafficLogsState,
     pub is_collecting: bool, // 수집 중 플래그
-    pub is_querying_sessions: bool, // 세션 조회 중 플래그
 }
 
 /// 실행 파일의 디렉터리를 기준으로 config 파일 경로를 반환합니다.
@@ -565,7 +566,6 @@ impl App {
             session_browser: SessionBrowserState::new(),
             traffic_logs: TrafficLogsState::new(),
             is_collecting: false,
-            is_querying_sessions: false,
         }
     }
 
@@ -792,12 +792,9 @@ impl App {
 
     /// 세션 조회 시작 (비동기)
     pub async fn start_session_query(&mut self) -> anyhow::Result<()> {
-        if self.is_querying_sessions {
-            return Ok(()); // 이미 조회 중이면 무시
-        }
-
+        // 이미 조회 중이면 무시
         if self.session_browser.query_status == CollectionStatus::Collecting {
-            return Ok(()); // 이미 조회 중이면 무시
+            return Ok(());
         }
 
         // 필터링된 프록시 목록 가져오기
@@ -855,7 +852,6 @@ impl App {
         }
 
         self.session_browser.query_start_time = None;
-        self.is_querying_sessions = false;
         Ok(())
     }
 }

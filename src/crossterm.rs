@@ -59,9 +59,15 @@ pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
         loop {
             interval.tick().await;
             let mut app_guard = app_for_spinner.lock().await;
+            // 자원 사용률 탭 스피너
             if app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Collecting
                 || app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Starting {
                 app_guard.resource_usage.spinner_frame = (app_guard.resource_usage.spinner_frame + 1) % 10;
+            }
+            // 세션 브라우저 탭 스피너
+            if app_guard.session_browser.query_status == crate::app::CollectionStatus::Collecting
+                || app_guard.session_browser.query_status == crate::app::CollectionStatus::Starting {
+                app_guard.session_browser.spinner_frame = (app_guard.session_browser.spinner_frame + 1) % 10;
             }
         }
     });
@@ -163,17 +169,22 @@ fn run_app<B: Backend>(
                         KeyCode::Char('s') | KeyCode::Char('S') => {
                             // S 키로 세션 조회 시작
                             let should_query = app_guard.current_tab == crate::app::TabIndex::SessionBrowser
-                                && app_guard.session_browser.query_status != crate::app::CollectionStatus::Collecting
-                                && !app_guard.is_querying_sessions;
+                                && app_guard.session_browser.query_status != crate::app::CollectionStatus::Collecting;
                             
                             if should_query {
-                                app_guard.is_querying_sessions = true;
+                                // 조회 시작 상태로 즉시 변경
+                                app_guard.session_browser.query_status = crate::app::CollectionStatus::Starting;
+                                app_guard.session_browser.query_start_time = Some(chrono::Local::now());
+                                
                                 let app_clone = app.clone();
                                 drop(app_guard);
                                 rt.spawn(async move {
                                     let mut app_guard = app_clone.lock().await;
                                     if let Err(e) = app_guard.start_session_query().await {
                                         eprintln!("세션 조회 실패: {}", e);
+                                        app_guard.session_browser.query_status = crate::app::CollectionStatus::Failed;
+                                        app_guard.session_browser.last_error = Some(format!("{}", e));
+                                        app_guard.session_browser.query_start_time = None;
                                     }
                                 });
                                 // app_guard가 drop되었으므로 다시 lock 필요

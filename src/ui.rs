@@ -668,21 +668,27 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
         control_chunks[0],
     );
 
-    // 상태
+    // 상태 (스피너 포함)
+    let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinner_char = spinner_chars[app.session_browser.spinner_frame % spinner_chars.len()];
+    
     let (status_text, status_color, elapsed_sec) = match app.session_browser.query_status {
         crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray, None),
-        crate::app::CollectionStatus::Starting => ("시작중".to_string(), Color::Yellow, None),
+        crate::app::CollectionStatus::Starting => {
+            (format!("{} 시작중", spinner_char), Color::Yellow, None)
+        }
         crate::app::CollectionStatus::Collecting => {
             let elapsed = app.session_browser.query_start_time
                 .map(|start| (chrono::Local::now() - start).num_seconds());
-            if let Some((completed, total)) = app.session_browser.query_progress {
-                (format!("조회중 ({}/{})", completed, total), Color::Yellow, elapsed)
+            let progress_text = if let Some((completed, total)) = app.session_browser.query_progress {
+                format!("{} 조회중 ({}/{})", spinner_char, completed, total)
             } else {
-                ("조회중".to_string(), Color::Yellow, elapsed)
-            }
+                format!("{} 조회중", spinner_char)
+            };
+            (progress_text, Color::Yellow, elapsed)
         }
-        crate::app::CollectionStatus::Success => ("완료".to_string(), Color::Green, None),
-        crate::app::CollectionStatus::Failed => ("실패".to_string(), Color::Red, None),
+        crate::app::CollectionStatus::Success => ("✓ 완료".to_string(), Color::Green, None),
+        crate::app::CollectionStatus::Failed => ("✗ 실패".to_string(), Color::Red, None),
     };
     let status_display = if let Some(elapsed) = elapsed_sec {
         format!("{}\n{}초", status_text, elapsed)
@@ -738,8 +744,12 @@ fn draw_session_browser(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // 테이블 영역
     let table = if filtered_sessions.is_empty() {
-        let empty_message = if app.session_browser.query_status == crate::app::CollectionStatus::Collecting {
-            "조회 중...".to_string()
+        let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let spinner_char = spinner_chars[app.session_browser.spinner_frame % spinner_chars.len()];
+        
+        let empty_message = if app.session_browser.query_status == crate::app::CollectionStatus::Collecting
+            || app.session_browser.query_status == crate::app::CollectionStatus::Starting {
+            format!("{} 조회 중...", spinner_char)
         } else if app.session_browser.query_status == crate::app::CollectionStatus::Failed {
             if let Some(ref error) = app.session_browser.last_error {
                 format!("조회 실패: {}", error)
