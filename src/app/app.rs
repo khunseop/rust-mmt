@@ -127,6 +127,12 @@ impl App {
 
     pub fn on_left(&mut self) {
         match self.current_tab {
+            TabIndex::ProxyManagement => {
+                // 프록시 관리 탭에서는 동작 없음
+            }
+            TabIndex::ResourceUsage => {
+                // 자원 사용률 탭에서는 동작 없음
+            }
             TabIndex::SessionBrowser => {
                 // 세션 브라우저 탭에서는 컬럼 선택과 가로 스크롤 동시 처리
                 self.session_browser.select_column_left();
@@ -135,15 +141,17 @@ impl App {
                 // 트래픽 로그 탭에서는 뷰 모드 변경
                 self.traffic_logs.previous_view_mode();
             }
-            _ => {
-                // 다른 탭에서는 탭 전환
-                self.current_tab = self.current_tab.previous();
-            }
         }
     }
 
     pub fn on_right(&mut self) {
         match self.current_tab {
+            TabIndex::ProxyManagement => {
+                // 프록시 관리 탭에서는 동작 없음
+            }
+            TabIndex::ResourceUsage => {
+                // 자원 사용률 탭에서는 동작 없음
+            }
             TabIndex::SessionBrowser => {
                 // 세션 브라우저 탭에서는 컬럼 선택과 가로 스크롤 동시 처리
                 self.session_browser.select_column_right();
@@ -151,10 +159,6 @@ impl App {
             TabIndex::TrafficLogs => {
                 // 트래픽 로그 탭에서는 뷰 모드 변경
                 self.traffic_logs.next_view_mode();
-            }
-            _ => {
-                // 다른 탭에서는 탭 전환
-                self.current_tab = self.current_tab.next();
             }
         }
     }
