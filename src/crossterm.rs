@@ -144,7 +144,15 @@ fn run_app<B: Backend>(
                                 app_guard.on_left();
                             }
                         }
-                        KeyCode::Up | KeyCode::Char('k') => app_guard.on_up(),
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if app_guard.current_tab == crate::app::TabIndex::TrafficLogs
+                                && key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                                // Shift+↑: 프록시 선택
+                                app_guard.on_proxy_previous_traffic();
+                            } else {
+                                app_guard.on_up();
+                            }
+                        }
                         KeyCode::Right | KeyCode::Char('l') => {
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
                                 && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
@@ -163,7 +171,15 @@ fn run_app<B: Backend>(
                                 app_guard.on_right();
                             }
                         }
-                        KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if app_guard.current_tab == crate::app::TabIndex::TrafficLogs
+                                && key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                                // Shift+↓: 프록시 선택
+                                app_guard.on_proxy_next_traffic();
+                            } else {
+                                app_guard.on_down();
+                            }
+                        }
                         KeyCode::Tab => {
                             // Tab 키는 항상 탭 전환만 (모든 탭에서 동일하게 동작)
                             app_guard.current_tab = app_guard.current_tab.next();
@@ -199,6 +215,14 @@ fn run_app<B: Backend>(
                                     // 일반 모드에서 Enter: 상세보기 모달 토글
                                     app_guard.session_browser.toggle_detail_modal();
                                 }
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                if app_guard.traffic_logs.search_mode {
+                                    // 검색 모드에서 Enter: 검색 완료 (검색어 유지)
+                                    app_guard.traffic_logs.finish_search_mode();
+                                } else if app_guard.traffic_logs.view_mode == crate::app::states::TrafficLogViewMode::LogList {
+                                    // 로그 목록 뷰에서 Enter: 상세보기 모달 토글
+                                    app_guard.traffic_logs.toggle_detail_modal();
+                                }
                             }
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
@@ -209,6 +233,15 @@ fn run_app<B: Backend>(
                                 } else if app_guard.session_browser.show_detail_modal {
                                     // 모달이 열려있으면 모달만 닫기
                                     app_guard.session_browser.close_detail_modal();
+                                }
+                                // q 키로 종료하지 않음 (Ctrl+C 사용)
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                if app_guard.traffic_logs.search_mode {
+                                    // 검색 모드에서는 문자 입력
+                                    app_guard.traffic_logs.add_search_char('q');
+                                } else if app_guard.traffic_logs.show_detail_modal {
+                                    // 모달이 열려있으면 모달만 닫기
+                                    app_guard.traffic_logs.close_detail_modal();
                                 }
                                 // q 키로 종료하지 않음 (Ctrl+C 사용)
                             }
@@ -264,38 +297,43 @@ fn run_app<B: Backend>(
                                     app_guard.session_browser.add_search_char('r');
                                 }
                             } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
-                                // R: 트래픽 로그 조회 시작
-                                let should_query = app_guard.traffic_logs.query_status != crate::app::CollectionStatus::Collecting;
-                                
-                                if should_query {
-                                    // 프록시 선택 확인 (선택 안됨 시 첫 번째 프록시 자동 선택)
-                                    let proxy_id = if let Some(id) = app_guard.traffic_logs.selected_proxy {
-                                        id as u32
-                                    } else if !app_guard.proxies.is_empty() {
-                                        let id = app_guard.proxies[app_guard.traffic_logs.proxy_list_index].id;
-                                        app_guard.traffic_logs.selected_proxy = Some(id as usize);
-                                        id
-                                    } else {
-                                        return Ok(()); // 프록시가 없으면 무시
-                                    };
+                                if !app_guard.traffic_logs.search_mode {
+                                    // R: 트래픽 로그 조회 시작
+                                    let should_query = app_guard.traffic_logs.query_status != crate::app::CollectionStatus::Collecting;
                                     
-                                    // 조회 시작 상태로 즉시 변경
-                                    app_guard.traffic_logs.query_status = crate::app::CollectionStatus::Starting;
-                                    app_guard.traffic_logs.query_start_time = Some(chrono::Local::now());
-                                    
-                                    let app_clone = app.clone();
-                                    drop(app_guard);
-                                    rt.spawn(async move {
-                                        let mut app_guard = app_clone.lock().await;
-                                        if let Err(e) = app_guard.start_traffic_log_query(proxy_id).await {
-                                            eprintln!("트래픽 로그 조회 실패: {}", e);
-                                            app_guard.traffic_logs.query_status = crate::app::CollectionStatus::Failed;
-                                            app_guard.traffic_logs.last_error = Some(format!("{}", e));
-                                            app_guard.traffic_logs.query_start_time = None;
-                                        }
-                                    });
-                                    // app_guard가 drop되었으므로 다시 lock 필요
-                                    app_guard = rt.block_on(app.lock());
+                                    if should_query {
+                                        // 프록시 선택 확인 (선택 안됨 시 첫 번째 프록시 자동 선택)
+                                        let proxy_id = if let Some(id) = app_guard.traffic_logs.selected_proxy {
+                                            id as u32
+                                        } else if !app_guard.proxies.is_empty() {
+                                            let id = app_guard.proxies[app_guard.traffic_logs.proxy_list_index].id;
+                                            app_guard.traffic_logs.selected_proxy = Some(id as usize);
+                                            id
+                                        } else {
+                                            return Ok(()); // 프록시가 없으면 무시
+                                        };
+                                        
+                                        // 조회 시작 상태로 즉시 변경
+                                        app_guard.traffic_logs.query_status = crate::app::CollectionStatus::Starting;
+                                        app_guard.traffic_logs.query_start_time = Some(chrono::Local::now());
+                                        
+                                        let app_clone = app.clone();
+                                        drop(app_guard);
+                                        rt.spawn(async move {
+                                            let mut app_guard = app_clone.lock().await;
+                                            if let Err(e) = app_guard.start_traffic_log_query(proxy_id).await {
+                                                eprintln!("트래픽 로그 조회 실패: {}", e);
+                                                app_guard.traffic_logs.query_status = crate::app::CollectionStatus::Failed;
+                                                app_guard.traffic_logs.last_error = Some(format!("{}", e));
+                                                app_guard.traffic_logs.query_start_time = None;
+                                            }
+                                        });
+                                        // app_guard가 drop되었으므로 다시 lock 필요
+                                        app_guard = rt.block_on(app.lock());
+                                    }
+                                } else {
+                                    // 검색 모드에서는 문자 입력
+                                    app_guard.traffic_logs.add_search_char('r');
                                 }
                             }
                         }
@@ -338,10 +376,19 @@ fn run_app<B: Backend>(
                                 }
                             } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
                                 // 트래픽 로그 탭에서의 문자 키 처리
-                                if c == 'b' || c == 'B' {
-                                    app_guard.traffic_logs.previous_page();
+                                if app_guard.traffic_logs.search_mode {
+                                    // 검색 모드일 때 - 모든 문자를 검색어로 입력
+                                    app_guard.traffic_logs.add_search_char(c);
                                 } else {
-                                    app_guard.on_key(c);
+                                    // 일반 모드일 때
+                                    if c == '/' {
+                                        // / 키로 검색 모드 시작
+                                        app_guard.traffic_logs.start_search_mode();
+                                    } else if c == 'b' || c == 'B' {
+                                        app_guard.traffic_logs.previous_page();
+                                    } else {
+                                        app_guard.on_key(c);
+                                    }
                                 }
                             } else if c == 'a' || c == 'A' {
                                 // A 키로 트래픽 로그 분석 시작
@@ -375,6 +422,9 @@ fn run_app<B: Backend>(
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
                                 && app_guard.session_browser.search_mode {
                                 app_guard.session_browser.backspace_search();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs
+                                && app_guard.traffic_logs.search_mode {
+                                app_guard.traffic_logs.backspace_search();
                             }
                         }
                         KeyCode::Esc => {
@@ -388,6 +438,15 @@ fn run_app<B: Backend>(
                                 } else if app_guard.session_browser.selected_column.is_some() {
                                     // 컬럼이 선택되어 있으면 컬럼 선택 해제
                                     app_guard.session_browser.clear_column_selection();
+                                }
+                                // Esc로 종료하지 않음 (Ctrl+C 사용)
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                if app_guard.traffic_logs.search_mode {
+                                    // 검색 취소 (검색어 초기화)
+                                    app_guard.traffic_logs.cancel_search_mode();
+                                } else if app_guard.traffic_logs.show_detail_modal {
+                                    // 모달이 열려있으면 모달만 닫기
+                                    app_guard.traffic_logs.close_detail_modal();
                                 }
                                 // Esc로 종료하지 않음 (Ctrl+C 사용)
                             }

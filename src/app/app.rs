@@ -82,22 +82,17 @@ impl App {
                 self.session_browser.previous(current_page_items);
             }
             TabIndex::TrafficLogs => {
-                // 로그 목록 뷰에서는 행 이동, 다른 뷰에서는 프록시 선택
+                // 로그 목록 뷰에서 행 이동 (검색 필터 적용)
                 if self.traffic_logs.view_mode == crate::app::states::TrafficLogViewMode::LogList {
+                    let filtered_count = self.get_filtered_log_count();
                     let page_start = self.traffic_logs.current_page * self.traffic_logs.page_size;
-                    let page_end = (page_start + self.traffic_logs.page_size).min(self.traffic_logs.log_records.len());
-                    let current_page_items = if page_start < self.traffic_logs.log_records.len() {
+                    let page_end = (page_start + self.traffic_logs.page_size).min(filtered_count);
+                    let current_page_items = if page_start < filtered_count {
                         page_end - page_start
                     } else {
                         0
                     };
                     self.traffic_logs.previous(current_page_items);
-                } else {
-                    // 프록시 선택
-                    self.traffic_logs.previous_proxy(self.proxies.len());
-                    if !self.proxies.is_empty() {
-                        self.traffic_logs.selected_proxy = Some(self.proxies[self.traffic_logs.proxy_list_index].id as usize);
-                    }
                 }
             }
         }
@@ -140,22 +135,17 @@ impl App {
                 self.session_browser.next(current_page_items);
             }
             TabIndex::TrafficLogs => {
-                // 로그 목록 뷰에서는 행 이동, 다른 뷰에서는 프록시 선택
+                // 로그 목록 뷰에서 행 이동 (검색 필터 적용)
                 if self.traffic_logs.view_mode == crate::app::states::TrafficLogViewMode::LogList {
+                    let filtered_count = self.get_filtered_log_count();
                     let page_start = self.traffic_logs.current_page * self.traffic_logs.page_size;
-                    let page_end = (page_start + self.traffic_logs.page_size).min(self.traffic_logs.log_records.len());
-                    let current_page_items = if page_start < self.traffic_logs.log_records.len() {
+                    let page_end = (page_start + self.traffic_logs.page_size).min(filtered_count);
+                    let current_page_items = if page_start < filtered_count {
                         page_end - page_start
                     } else {
                         0
                     };
                     self.traffic_logs.next(current_page_items);
-                } else {
-                    // 프록시 선택
-                    self.traffic_logs.next_proxy(self.proxies.len());
-                    if !self.proxies.is_empty() {
-                        self.traffic_logs.selected_proxy = Some(self.proxies[self.traffic_logs.proxy_list_index].id as usize);
-                    }
                 }
             }
         }
@@ -174,8 +164,12 @@ impl App {
                 self.session_browser.select_column_left();
             }
             TabIndex::TrafficLogs => {
-                // 트래픽 로그 탭에서는 뷰 모드 변경
-                self.traffic_logs.previous_view_mode();
+                // 로그 목록 뷰에서는 컬럼 스크롤, 다른 뷰에서는 뷰 모드 변경
+                if self.traffic_logs.view_mode == crate::app::states::TrafficLogViewMode::LogList {
+                    self.traffic_logs.scroll_column_left();
+                } else {
+                    self.traffic_logs.previous_view_mode();
+                }
             }
         }
     }
@@ -193,8 +187,12 @@ impl App {
                 self.session_browser.select_column_right();
             }
             TabIndex::TrafficLogs => {
-                // 트래픽 로그 탭에서는 뷰 모드 변경
-                self.traffic_logs.next_view_mode();
+                // 로그 목록 뷰에서는 컬럼 스크롤, 다른 뷰에서는 뷰 모드 변경
+                if self.traffic_logs.view_mode == crate::app::states::TrafficLogViewMode::LogList {
+                    self.traffic_logs.scroll_column_right(15); // 15개 컬럼
+                } else {
+                    self.traffic_logs.next_view_mode();
+                }
             }
         }
     }
@@ -217,13 +215,49 @@ impl App {
 
     pub fn on_key(&mut self, c: char) {
         match c {
-            'q' => self.should_quit = true,
+            // q 키로 종료하지 않음 (Ctrl+C 사용)
             '1' => self.current_tab = TabIndex::ProxyManagement,
             '2' => self.current_tab = TabIndex::ResourceUsage,
             '3' => self.current_tab = TabIndex::SessionBrowser,
             '4' => self.current_tab = TabIndex::TrafficLogs,
             // +/- 키는 crossterm.rs에서 직접 처리
             _ => {}
+        }
+    }
+
+    /// 트래픽 로그에서 다음 프록시 선택
+    pub fn on_proxy_next_traffic(&mut self) {
+        self.traffic_logs.next_proxy(self.proxies.len());
+        if !self.proxies.is_empty() {
+            self.traffic_logs.selected_proxy = Some(self.proxies[self.traffic_logs.proxy_list_index].id as usize);
+        }
+    }
+
+    /// 트래픽 로그에서 이전 프록시 선택
+    pub fn on_proxy_previous_traffic(&mut self) {
+        self.traffic_logs.previous_proxy(self.proxies.len());
+        if !self.proxies.is_empty() {
+            self.traffic_logs.selected_proxy = Some(self.proxies[self.traffic_logs.proxy_list_index].id as usize);
+        }
+    }
+
+    /// 검색 필터가 적용된 로그 수 반환
+    pub fn get_filtered_log_count(&self) -> usize {
+        if self.traffic_logs.search_query.is_empty() {
+            self.traffic_logs.log_records.len()
+        } else {
+            let query = self.traffic_logs.search_query.to_lowercase();
+            self.traffic_logs.log_records.iter()
+                .filter(|record| {
+                    record.client_ip.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    record.username.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    record.url_host.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    record.url_path.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    record.action_names.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    record.response_statuscode.map(|c| c.to_string().contains(&query)).unwrap_or(false) ||
+                    record.url_categories.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false)
+                })
+                .count()
         }
     }
 

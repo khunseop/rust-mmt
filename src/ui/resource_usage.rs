@@ -356,7 +356,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // 키보드 단축키 도움말 (컴팩트)
     let help_text = vec![
-        "Tab: 탭전환 | q/Esc: 종료 | ↑↓: 테이블이동 | Space: 자동수집토글 | +/-: 주기 | Shift+←→: 그룹",
+        "Tab: 탭전환 | ↑↓: 테이블이동 | Space: 자동수집토글 | +/-: 주기 | Shift+←→: 그룹",
     ];
     frame.render_widget(
         Paragraph::new(help_text.join("\n"))

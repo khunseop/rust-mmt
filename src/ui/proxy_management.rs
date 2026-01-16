@@ -139,7 +139,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(proxy_table, chunks[1]);
 
     // 키보드 단축키 도움말
-    let help_text = "Tab: 탭전환 | 1~4: 탭선택 | q/Esc: 종료";
+    let help_text = "Tab: 탭전환 | 1~4: 탭선택";
     frame.render_widget(
         Paragraph::new(help_text)
             .block(Block::default().borders(Borders::ALL).title("단축키"))

@@ -689,6 +689,13 @@ pub struct TrafficLogsState {
     pub table_state: ratatui::widgets::TableState,
     // 프록시 선택 (숫자 인덱스)
     pub proxy_list_index: usize,
+    // 컬럼 스크롤
+    pub column_offset: usize,
+    // 상세보기 모달
+    pub show_detail_modal: bool,
+    // 검색 기능
+    pub search_mode: bool,
+    pub search_query: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -728,6 +735,13 @@ impl TrafficLogsState {
             total_pages: 0,
             table_state: ratatui::widgets::TableState::default(),
             proxy_list_index: 0,
+            // 컬럼 스크롤
+            column_offset: 0,
+            // 상세보기 모달
+            show_detail_modal: false,
+            // 검색 기능
+            search_mode: false,
+            search_query: String::new(),
         }
     }
 
@@ -846,5 +860,58 @@ impl TrafficLogsState {
         } else {
             self.proxy_list_index -= 1;
         }
+    }
+
+    /// 컬럼 오른쪽으로 스크롤
+    pub fn scroll_column_right(&mut self, max_columns: usize) {
+        if self.column_offset < max_columns.saturating_sub(1) {
+            self.column_offset += 1;
+        }
+    }
+
+    /// 컬럼 왼쪽으로 스크롤
+    pub fn scroll_column_left(&mut self) {
+        if self.column_offset > 0 {
+            self.column_offset -= 1;
+        }
+    }
+
+    /// 상세보기 모달 토글
+    pub fn toggle_detail_modal(&mut self) {
+        self.show_detail_modal = !self.show_detail_modal;
+    }
+
+    /// 상세보기 모달 닫기
+    pub fn close_detail_modal(&mut self) {
+        self.show_detail_modal = false;
+    }
+
+    /// 검색 모드 시작
+    pub fn start_search_mode(&mut self) {
+        self.search_mode = true;
+    }
+
+    /// 검색 완료 (검색어 유지)
+    pub fn finish_search_mode(&mut self) {
+        self.search_mode = false;
+    }
+
+    /// 검색 취소 (검색어 초기화)
+    pub fn cancel_search_mode(&mut self) {
+        self.search_mode = false;
+        self.search_query.clear();
+        self.current_page = 0;
+    }
+
+    /// 검색어에 문자 추가
+    pub fn add_search_char(&mut self, c: char) {
+        self.search_query.push(c);
+        self.current_page = 0;
+    }
+
+    /// 검색어에서 문자 삭제
+    pub fn backspace_search(&mut self) {
+        self.search_query.pop();
+        self.current_page = 0;
     }
 }

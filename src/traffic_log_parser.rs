@@ -110,11 +110,22 @@ impl TrafficLogRecord {
 
                 match *field_name {
                     "datetime" => {
-                        // 날짜 시간 파싱 시도
-                        if let Ok(dt) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
-                            record.datetime = Some(Local.from_local_datetime(&dt)
-                                .single()
-                                .unwrap_or_else(|| dt.and_utc().with_timezone(&Local)));
+                        // 여러 날짜 형식 파싱 시도
+                        let formats = [
+                            "%Y-%m-%d %H:%M:%S",
+                            "%d/%b/%Y:%H:%M:%S",
+                            "%Y/%m/%d %H:%M:%S",
+                            "%Y-%m-%dT%H:%M:%S",
+                            "%d-%m-%Y %H:%M:%S",
+                            "%Y%m%d%H%M%S",
+                        ];
+                        for fmt in formats {
+                            if let Ok(dt) = NaiveDateTime::parse_from_str(value, fmt) {
+                                record.datetime = Some(Local.from_local_datetime(&dt)
+                                    .single()
+                                    .unwrap_or_else(|| dt.and_utc().with_timezone(&Local)));
+                                break;
+                            }
                         }
                     }
                     "username" => record.username = Some(value.to_string()),
