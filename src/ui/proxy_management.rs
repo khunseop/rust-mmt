@@ -8,12 +8,13 @@ use ratatui::{
 use crate::app::App;
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
-    // 통계 정보 영역과 테이블 영역으로 분할
+    // 통계 정보 영역, 테이블 영역, 단축키 영역으로 분할
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
         .constraints([
             Constraint::Length(3),  // 통계 정보 영역
             Constraint::Min(0),     // 프록시 목록 테이블
+            Constraint::Length(3),  // 단축키 도움말
         ])
         .split(area);
 
@@ -136,4 +137,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .block(Block::default().borders(Borders::ALL).title(format!("프록시 목록 (총 {}개)", app.proxies.len())))
     };
     frame.render_widget(proxy_table, chunks[1]);
+
+    // 키보드 단축키 도움말
+    let help_text = "Tab: 탭전환 | 1~4: 탭선택 | q/Esc: 종료";
+    frame.render_widget(
+        Paragraph::new(help_text)
+            .block(Block::default().borders(Borders::ALL).title("단축키"))
+            .style(Style::default().fg(Color::Gray)),
+        chunks[2],
+    );
 }

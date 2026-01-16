@@ -467,10 +467,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // 키보드 단축키 도움말
     let total_columns = 19;
     let current_col = app.session_browser.column_offset + 1;
+    let search_status = if !app.session_browser.search_query.is_empty() {
+        format!(" [검색중: \"{}\"]", app.session_browser.search_query)
+    } else {
+        String::new()
+    };
     let help_text = vec![
-        format!("Tab: 탭전환 | q: 종료 | ↑↓: 행이동 | ←→: 컬럼선택/스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회 | Enter: 상세보기 | Shift+S: 정렬 | Esc: 컬럼선택해제", 
-            current_col, total_columns),
-        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home: 첫페이지 | End: 마지막페이지 | /: 검색 | Ctrl+←→: 컬럼순서변경"),
+        format!("Tab: 탭전환 | q: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회 | Enter: 상세보기{}", 
+            current_col, total_columns, search_status),
+        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home/End: 첫/마지막페이지 | /: 검색시작 | Shift+S: 정렬"),
     ];
     
     if app.session_browser.search_mode {
@@ -479,7 +484,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .direction(ratatui::layout::Direction::Vertical)
             .constraints([
                 Constraint::Length(3),  // 도움말
-                Constraint::Length(2),  // 검색 입력
+                Constraint::Length(3),  // 검색 입력
             ])
             .split(chunks[2]);
         
@@ -490,11 +495,17 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             search_chunks[0],
         );
         
-        // 검색 입력 UI
-        let search_display = format!("검색: {}", app.session_browser.search_query);
+        // 검색 입력 UI (커서 표시 및 결과 수 표시)
+        let cursor = "█";
+        let search_display = format!("검색어: {}{}", app.session_browser.search_query, cursor);
+        let result_info = if app.session_browser.search_query.is_empty() {
+            format!("전체 {}건", total_filtered)
+        } else {
+            format!("검색결과 {}건", total_filtered)
+        };
         frame.render_widget(
-            Paragraph::new(search_display.as_str())
-                .block(Block::default().borders(Borders::ALL).title("검색 [Esc: 종료]"))
+            Paragraph::new(format!("{}\n{}", search_display, result_info))
+                .block(Block::default().borders(Borders::ALL).title("검색 [Esc: 종료, Enter: 검색완료]"))
                 .style(Style::default().fg(Color::Yellow)),
             search_chunks[1],
         );
