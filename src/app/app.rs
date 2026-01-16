@@ -81,7 +81,25 @@ impl App {
                 };
                 self.session_browser.previous(current_page_items);
             }
-            TabIndex::TrafficLogs => {}
+            TabIndex::TrafficLogs => {
+                // 로그 목록 뷰에서는 행 이동, 다른 뷰에서는 프록시 선택
+                if self.traffic_logs.view_mode == crate::app::states::TrafficLogViewMode::LogList {
+                    let page_start = self.traffic_logs.current_page * self.traffic_logs.page_size;
+                    let page_end = (page_start + self.traffic_logs.page_size).min(self.traffic_logs.log_records.len());
+                    let current_page_items = if page_start < self.traffic_logs.log_records.len() {
+                        page_end - page_start
+                    } else {
+                        0
+                    };
+                    self.traffic_logs.previous(current_page_items);
+                } else {
+                    // 프록시 선택
+                    self.traffic_logs.previous_proxy(self.proxies.len());
+                    if !self.proxies.is_empty() {
+                        self.traffic_logs.selected_proxy = Some(self.proxies[self.traffic_logs.proxy_list_index].id as usize);
+                    }
+                }
+            }
         }
     }
 
@@ -121,7 +139,25 @@ impl App {
                 };
                 self.session_browser.next(current_page_items);
             }
-            TabIndex::TrafficLogs => {}
+            TabIndex::TrafficLogs => {
+                // 로그 목록 뷰에서는 행 이동, 다른 뷰에서는 프록시 선택
+                if self.traffic_logs.view_mode == crate::app::states::TrafficLogViewMode::LogList {
+                    let page_start = self.traffic_logs.current_page * self.traffic_logs.page_size;
+                    let page_end = (page_start + self.traffic_logs.page_size).min(self.traffic_logs.log_records.len());
+                    let current_page_items = if page_start < self.traffic_logs.log_records.len() {
+                        page_end - page_start
+                    } else {
+                        0
+                    };
+                    self.traffic_logs.next(current_page_items);
+                } else {
+                    // 프록시 선택
+                    self.traffic_logs.next_proxy(self.proxies.len());
+                    if !self.proxies.is_empty() {
+                        self.traffic_logs.selected_proxy = Some(self.proxies[self.traffic_logs.proxy_list_index].id as usize);
+                    }
+                }
+            }
         }
     }
 
@@ -466,6 +502,82 @@ impl App {
         }
 
         self.traffic_logs.analysis_start_time = None;
+        Ok(())
+    }
+
+    /// 트래픽 로그 조회 시작 (비동기)
+    pub async fn start_traffic_log_query(&mut self, proxy_id: u32) -> anyhow::Result<()> {
+        // 이미 조회 중이면 무시
+        if self.traffic_logs.query_status == CollectionStatus::Collecting {
+            return Ok(());
+        }
+
+        // 프록시 찾기
+        let proxy = self.proxies.iter()
+            .find(|p| p.id == proxy_id)
+            .ok_or_else(|| anyhow::anyhow!("프록시를 찾을 수 없습니다: {}", proxy_id))?;
+
+        // traffic_log_path 확인
+        let log_path = proxy.traffic_log_path.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("프록시에 traffic_log_path가 설정되지 않았습니다"))?;
+
+        self.traffic_logs.last_error = None;
+        self.traffic_logs.query_status = CollectionStatus::Collecting;
+        self.traffic_logs.query_progress = Some((0, 1));
+        self.traffic_logs.query_start_time = Some(chrono::Local::now());
+
+        // 트래픽 로그 수집기 설정
+        let config = crate::traffic_log_collector::TrafficLogCollectorConfig {
+            ssh_port: proxy.port,
+            timeout_sec: 30,
+            limit: self.traffic_logs.log_limit,
+            direction: crate::traffic_log_collector::LogDirection::Tail,
+        };
+        let collector = crate::traffic_log_collector::TrafficLogCollector::new(config);
+
+        // 로그 조회
+        match collector.fetch_logs(proxy, log_path).await {
+            Ok(lines) => {
+                // 로그 파싱
+                let mut records = Vec::new();
+                for line in &lines {
+                    if let Ok(record) = crate::traffic_log_parser::TrafficLogRecord::parse(line) {
+                        records.push(record);
+                    }
+                }
+
+                self.traffic_logs.log_records = records;
+                self.traffic_logs.query_status = CollectionStatus::Success;
+                self.traffic_logs.query_progress = Some((1, 1));
+                self.traffic_logs.last_query_time = Some(chrono::Local::now());
+
+                // 페이지네이션 업데이트
+                self.traffic_logs.update_total_pages(self.traffic_logs.log_records.len());
+                self.traffic_logs.current_page = 0;
+                self.traffic_logs.table_state.select(Some(0));
+
+                // 분석도 함께 수행
+                let analyzer = crate::traffic_log_parser::TrafficLogAnalyzer::new(self.traffic_logs.top_n);
+                let analysis = analyzer.analyze(&lines);
+                self.traffic_logs.top_n_analysis = Some(analysis);
+                self.traffic_logs.last_analysis_time = Some(chrono::Local::now());
+
+                // CSV 저장
+                if let Some(ref analysis) = self.traffic_logs.top_n_analysis {
+                    if let Err(e) = crate::csv_writer::CsvWriter::save_traffic_analysis(analysis) {
+                        self.traffic_logs.last_error = Some(format!("CSV 저장 실패: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.traffic_logs.last_error = Some(format!("트래픽 로그 조회 실패: {}", e));
+                self.traffic_logs.query_status = CollectionStatus::Failed;
+                self.traffic_logs.log_records = Vec::new();
+                self.traffic_logs.query_progress = None;
+            }
+        }
+
+        self.traffic_logs.query_start_time = None;
         Ok(())
     }
 

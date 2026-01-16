@@ -69,6 +69,11 @@ pub fn run(tick_rate: Duration) -> Result<(), Box<dyn Error>> {
                 || app_guard.session_browser.query_status == crate::app::CollectionStatus::Starting {
                 app_guard.session_browser.spinner_frame = (app_guard.session_browser.spinner_frame + 1) % 10;
             }
+            // 트래픽 로그 탭 스피너
+            if app_guard.traffic_logs.query_status == crate::app::CollectionStatus::Collecting
+                || app_guard.traffic_logs.query_status == crate::app::CollectionStatus::Starting {
+                app_guard.traffic_logs.spinner_frame = (app_guard.traffic_logs.spinner_frame + 1) % 10;
+            }
         }
     });
 
@@ -172,6 +177,9 @@ fn run_app<B: Backend>(
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
                                 // 세션 브라우저 탭: 다음 페이지
                                 app_guard.session_browser.next_page();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                // 트래픽 로그 탭: 다음 페이지
+                                app_guard.traffic_logs.next_page();
                             } else if app_guard.current_tab == crate::app::TabIndex::ResourceUsage
                                 && app_guard.resource_usage.collection_status == crate::app::CollectionStatus::Idle
                             {
@@ -209,11 +217,21 @@ fn run_app<B: Backend>(
                         KeyCode::Char('+') | KeyCode::Char('=') => {
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
                                 app_guard.resource_usage.increase_interval();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                // 조회 라인 수 증가 (100씩, 최대 2000)
+                                if app_guard.traffic_logs.log_limit < 2000 {
+                                    app_guard.traffic_logs.log_limit += 100;
+                                }
                             }
                         }
                         KeyCode::Char('-') | KeyCode::Char('_') => {
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
                                 app_guard.resource_usage.decrease_interval();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                // 조회 라인 수 감소 (100씩, 최소 100)
+                                if app_guard.traffic_logs.log_limit > 100 {
+                                    app_guard.traffic_logs.log_limit -= 100;
+                                }
                             }
                         }
                         KeyCode::Char('r') | KeyCode::Char('R') => {
@@ -244,6 +262,40 @@ fn run_app<B: Backend>(
                                 } else {
                                     // 검색 모드에서는 문자 입력
                                     app_guard.session_browser.add_search_char('r');
+                                }
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                // R: 트래픽 로그 조회 시작
+                                let should_query = app_guard.traffic_logs.query_status != crate::app::CollectionStatus::Collecting;
+                                
+                                if should_query {
+                                    // 프록시 선택 확인 (선택 안됨 시 첫 번째 프록시 자동 선택)
+                                    let proxy_id = if let Some(id) = app_guard.traffic_logs.selected_proxy {
+                                        id as u32
+                                    } else if !app_guard.proxies.is_empty() {
+                                        let id = app_guard.proxies[app_guard.traffic_logs.proxy_list_index].id;
+                                        app_guard.traffic_logs.selected_proxy = Some(id as usize);
+                                        id
+                                    } else {
+                                        return Ok(()); // 프록시가 없으면 무시
+                                    };
+                                    
+                                    // 조회 시작 상태로 즉시 변경
+                                    app_guard.traffic_logs.query_status = crate::app::CollectionStatus::Starting;
+                                    app_guard.traffic_logs.query_start_time = Some(chrono::Local::now());
+                                    
+                                    let app_clone = app.clone();
+                                    drop(app_guard);
+                                    rt.spawn(async move {
+                                        let mut app_guard = app_clone.lock().await;
+                                        if let Err(e) = app_guard.start_traffic_log_query(proxy_id).await {
+                                            eprintln!("트래픽 로그 조회 실패: {}", e);
+                                            app_guard.traffic_logs.query_status = crate::app::CollectionStatus::Failed;
+                                            app_guard.traffic_logs.last_error = Some(format!("{}", e));
+                                            app_guard.traffic_logs.query_start_time = None;
+                                        }
+                                    });
+                                    // app_guard가 drop되었으므로 다시 lock 필요
+                                    app_guard = rt.block_on(app.lock());
                                 }
                             }
                         }
@@ -283,6 +335,13 @@ fn run_app<B: Backend>(
                                     } else {
                                         app_guard.on_key(c);
                                     }
+                                }
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                // 트래픽 로그 탭에서의 문자 키 처리
+                                if c == 'b' || c == 'B' {
+                                    app_guard.traffic_logs.previous_page();
+                                } else {
+                                    app_guard.on_key(c);
                                 }
                             } else if c == 'a' || c == 'A' {
                                 // A 키로 트래픽 로그 분석 시작
@@ -337,21 +396,29 @@ fn run_app<B: Backend>(
                         KeyCode::PageDown => {
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
                                 app_guard.session_browser.next_page();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                app_guard.traffic_logs.next_page();
                             }
                         }
                         KeyCode::PageUp => {
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
                                 app_guard.session_browser.previous_page();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                app_guard.traffic_logs.previous_page();
                             }
                         }
                         KeyCode::Home => {
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
                                 app_guard.session_browser.first_page();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                app_guard.traffic_logs.first_page();
                             }
                         }
                         KeyCode::End => {
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
                                 app_guard.session_browser.last_page();
+                            } else if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                app_guard.traffic_logs.last_page();
                             }
                         }
                         _ => {}

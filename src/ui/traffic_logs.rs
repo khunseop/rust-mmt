@@ -23,8 +23,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .constraints([
             Constraint::Length(20), // 프록시 선택
             Constraint::Length(18), // 상태
-            Constraint::Length(20), // 마지막분석
-            Constraint::Min(0),     // 나머지
+            Constraint::Length(20), // 마지막조회
+            Constraint::Length(15), // 조회라인수
+            Constraint::Min(0),     // 페이지 정보
         ])
         .split(chunks[0]);
 
@@ -35,37 +36,43 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         } else {
             "선택 안됨".to_string()
         }
+    } else if !app.proxies.is_empty() {
+        // 첫 번째 프록시 자동 선택
+        let proxy = &app.proxies[app.traffic_logs.proxy_list_index % app.proxies.len()];
+        format!("{}\n{}", proxy.host, proxy.group)
     } else {
-        "선택 안됨".to_string()
+        "프록시 없음".to_string()
     };
     frame.render_widget(
         Paragraph::new(proxy_text.as_str())
-            .block(Block::default().borders(Borders::ALL).title("프록시"))
+            .block(Block::default().borders(Borders::ALL).title("프록시(↑↓)"))
             .style(Style::default().fg(Color::Cyan)),
         control_chunks[0],
     );
 
-    // 상태 (스피너 포함)
+    // 상태 (스피너 포함) - 조회 상태 우선
     let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let spinner_char = spinner_chars[app.traffic_logs.spinner_frame % spinner_chars.len()];
     
-    let (status_text, status_color, elapsed_sec) = match app.traffic_logs.analysis_status {
-        crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray, None),
-        crate::app::CollectionStatus::Starting => {
-            (format!("{} 시작중", spinner_char), Color::Yellow, None)
+    let (status_text, status_color, elapsed_sec) = if app.traffic_logs.query_status == crate::app::CollectionStatus::Collecting
+        || app.traffic_logs.query_status == crate::app::CollectionStatus::Starting {
+        let elapsed = app.traffic_logs.query_start_time
+            .map(|start| (chrono::Local::now() - start).num_seconds());
+        (format!("{} 조회중", spinner_char), Color::Yellow, elapsed)
+    } else {
+        match app.traffic_logs.query_status {
+            crate::app::CollectionStatus::Idle => ("대기중".to_string(), Color::Gray, None),
+            crate::app::CollectionStatus::Starting => {
+                (format!("{} 시작중", spinner_char), Color::Yellow, None)
+            }
+            crate::app::CollectionStatus::Collecting => {
+                let elapsed = app.traffic_logs.query_start_time
+                    .map(|start| (chrono::Local::now() - start).num_seconds());
+                (format!("{} 조회중", spinner_char), Color::Yellow, elapsed)
+            }
+            crate::app::CollectionStatus::Success => ("✓ 완료".to_string(), Color::Green, None),
+            crate::app::CollectionStatus::Failed => ("✗ 실패".to_string(), Color::Red, None),
         }
-        crate::app::CollectionStatus::Collecting => {
-            let elapsed = app.traffic_logs.analysis_start_time
-                .map(|start| (chrono::Local::now() - start).num_seconds());
-            let progress_text = if let Some((completed, total)) = app.traffic_logs.analysis_progress {
-                format!("{} 분석중 ({}/{})", spinner_char, completed, total)
-            } else {
-                format!("{} 분석중", spinner_char)
-            };
-            (progress_text, Color::Yellow, elapsed)
-        }
-        crate::app::CollectionStatus::Success => ("✓ 완료".to_string(), Color::Green, None),
-        crate::app::CollectionStatus::Failed => ("✗ 실패".to_string(), Color::Red, None),
     };
     let status_display = if let Some(elapsed) = elapsed_sec {
         format!("{}\n{}초", status_text, elapsed)
@@ -79,8 +86,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         control_chunks[1],
     );
 
-    // 마지막 분석 시간
-    let last_analysis_text = if let Some(last_time) = app.traffic_logs.last_analysis_time {
+    // 마지막 조회 시간
+    let last_query_text = if let Some(last_time) = app.traffic_logs.last_query_time {
         format!("{}\n{}", 
             last_time.format("%H:%M:%S"),
             last_time.format("%m/%d"))
@@ -88,54 +95,90 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         "없음".to_string()
     };
     frame.render_widget(
-        Paragraph::new(last_analysis_text.as_str())
-            .block(Block::default().borders(Borders::ALL).title("마지막분석"))
+        Paragraph::new(last_query_text.as_str())
+            .block(Block::default().borders(Borders::ALL).title("마지막조회"))
             .style(Style::default().fg(Color::Cyan)),
         control_chunks[2],
     );
 
-    // 테이블 영역
-    let table = if let Some(ref analysis) = app.traffic_logs.top_n_analysis {
-        match app.traffic_logs.view_mode {
-            crate::app::states::TrafficLogViewMode::Summary => {
-                draw_summary_table(frame, chunks[1], analysis, app)
-            }
-            crate::app::states::TrafficLogViewMode::TopClients => {
-                draw_top_clients_table(frame, chunks[1], analysis)
-            }
-            crate::app::states::TrafficLogViewMode::TopHosts => {
-                draw_top_hosts_table(frame, chunks[1], analysis)
-            }
-            crate::app::states::TrafficLogViewMode::TopUrls => {
-                draw_top_urls_table(frame, chunks[1], analysis)
-            }
-        }
-    } else {
-        let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-        let spinner_char = spinner_chars[app.traffic_logs.spinner_frame % spinner_chars.len()];
-        
-        let empty_message = if app.traffic_logs.analysis_status == crate::app::CollectionStatus::Collecting
-            || app.traffic_logs.analysis_status == crate::app::CollectionStatus::Starting {
-            format!("{} 분석 중...", spinner_char)
-        } else if app.traffic_logs.analysis_status == crate::app::CollectionStatus::Failed {
-            if let Some(ref error) = app.traffic_logs.last_error {
-                format!("분석 실패: {}", error)
-            } else {
-                "분석 실패".to_string()
-            }
-        } else {
-            "데이터가 없습니다. 프록시를 선택하고 [A] 키를 눌러 분석하세요.".to_string()
-        };
-        Table::new(
-            vec![Row::new(vec![
-                Cell::from(empty_message),
-            ])],
-            [Constraint::Percentage(100)],
-        )
-        .block(Block::default().borders(Borders::ALL).title("트래픽 로그 분석"))
-    };
+    // 조회 라인 수
+    frame.render_widget(
+        Paragraph::new(format!("{}", app.traffic_logs.log_limit))
+            .block(Block::default().borders(Borders::ALL).title("조회라인"))
+            .style(Style::default().fg(Color::Cyan)),
+        control_chunks[3],
+    );
 
-    frame.render_widget(table, chunks[1]);
+    // 페이지 정보 (로그 목록 뷰일 때만)
+    let total_records = app.traffic_logs.log_records.len();
+    let page_info = if total_records > 0 {
+        format!("페이지 {}/{} (총 {}개)", 
+            app.traffic_logs.current_page + 1,
+            app.traffic_logs.total_pages.max(1),
+            total_records)
+    } else {
+        "페이지 0/0 (0개)".to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(page_info.as_str())
+            .block(Block::default().borders(Borders::ALL).title("페이지"))
+            .style(Style::default().fg(Color::Cyan)),
+        control_chunks[4],
+    );
+
+    // 테이블 영역
+    match app.traffic_logs.view_mode {
+        crate::app::states::TrafficLogViewMode::LogList => {
+            // 로그 목록 뷰
+            draw_log_list(frame, app, chunks[1]);
+        }
+        _ => {
+            // 분석 뷰
+            let table = if let Some(ref analysis) = app.traffic_logs.top_n_analysis {
+                match app.traffic_logs.view_mode {
+                    crate::app::states::TrafficLogViewMode::Summary => {
+                        draw_summary_table(frame, chunks[1], analysis, app)
+                    }
+                    crate::app::states::TrafficLogViewMode::TopClients => {
+                        draw_top_clients_table(frame, chunks[1], analysis)
+                    }
+                    crate::app::states::TrafficLogViewMode::TopHosts => {
+                        draw_top_hosts_table(frame, chunks[1], analysis)
+                    }
+                    crate::app::states::TrafficLogViewMode::TopUrls => {
+                        draw_top_urls_table(frame, chunks[1], analysis)
+                    }
+                    crate::app::states::TrafficLogViewMode::LogList => {
+                        unreachable!()
+                    }
+                }
+            } else {
+                let spinner_char = spinner_chars[app.traffic_logs.spinner_frame % spinner_chars.len()];
+                
+                let empty_message = if app.traffic_logs.query_status == crate::app::CollectionStatus::Collecting
+                    || app.traffic_logs.query_status == crate::app::CollectionStatus::Starting {
+                    format!("{} 조회 중...", spinner_char)
+                } else if app.traffic_logs.query_status == crate::app::CollectionStatus::Failed {
+                    if let Some(ref error) = app.traffic_logs.last_error {
+                        format!("조회 실패: {}", error)
+                    } else {
+                        "조회 실패".to_string()
+                    }
+                } else {
+                    "데이터가 없습니다. 프록시를 선택하고 [R] 키를 눌러 조회하세요.".to_string()
+                };
+                Table::new(
+                    vec![Row::new(vec![
+                        Cell::from(empty_message),
+                    ])],
+                    [Constraint::Percentage(100)],
+                )
+                .block(Block::default().borders(Borders::ALL).title("트래픽 로그"))
+            };
+
+            frame.render_widget(table, chunks[1]);
+        }
+    }
 
     // 키보드 단축키 도움말
     let view_mode_text = match app.traffic_logs.view_mode {
@@ -143,10 +186,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         crate::app::states::TrafficLogViewMode::TopClients => "TOP클라이언트",
         crate::app::states::TrafficLogViewMode::TopHosts => "TOP호스트",
         crate::app::states::TrafficLogViewMode::TopUrls => "TOPURL",
+        crate::app::states::TrafficLogViewMode::LogList => "로그목록",
     };
     let help_text = vec![
-        format!("Tab: 탭전환 | q/Esc: 종료 | ↑↓: 행이동 | ←→: 뷰모드변경({}) | A: 분석시작", view_mode_text),
-        format!("프록시 선택: 숫자키(1-9) 또는 ↑↓로 선택 후 Enter"),
+        format!("Tab: 탭전환 | ↑↓: 프록시/행 선택 | ←→: 뷰모드변경({}) | R: 로그조회", view_mode_text),
+        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | +/-: 조회라인수 조정 (현재: {})", app.traffic_logs.log_limit),
     ];
     frame.render_widget(
         Paragraph::new(help_text.join("\n"))
@@ -154,6 +198,123 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().fg(Color::Gray)),
         chunks[2],
     );
+}
+
+/// 로그 목록 뷰 렌더링
+fn draw_log_list(frame: &mut Frame, app: &mut App, area: Rect) {
+    let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinner_char = spinner_chars[app.traffic_logs.spinner_frame % spinner_chars.len()];
+
+    if app.traffic_logs.log_records.is_empty() {
+        let empty_message = if app.traffic_logs.query_status == crate::app::CollectionStatus::Collecting
+            || app.traffic_logs.query_status == crate::app::CollectionStatus::Starting {
+            format!("{} 조회 중...", spinner_char)
+        } else if app.traffic_logs.query_status == crate::app::CollectionStatus::Failed {
+            if let Some(ref error) = app.traffic_logs.last_error {
+                format!("조회 실패: {}", error)
+            } else {
+                "조회 실패".to_string()
+            }
+        } else {
+            "데이터가 없습니다. [R] 키를 눌러 조회하세요.".to_string()
+        };
+        let table = Table::new(
+            vec![Row::new(vec![Cell::from(empty_message)])],
+            [Constraint::Percentage(100)],
+        )
+        .block(Block::default().borders(Borders::ALL).title("로그 목록"));
+        frame.render_widget(table, area);
+        return;
+    }
+
+    // 페이지네이션 적용
+    let page_start = app.traffic_logs.current_page * app.traffic_logs.page_size;
+    let page_end = (page_start + app.traffic_logs.page_size).min(app.traffic_logs.log_records.len());
+    
+    let paginated_records: Vec<&crate::traffic_log_parser::TrafficLogRecord> = 
+        app.traffic_logs.log_records[page_start..page_end].iter().collect();
+
+    // 테이블 생성
+    let rows: Vec<Row> = paginated_records
+        .iter()
+        .enumerate()
+        .map(|(i, record)| {
+            let style = if app.traffic_logs.table_state.selected() == Some(i) {
+                Style::default().bg(Color::Blue)
+            } else {
+                Style::default()
+            };
+
+            let datetime = record.datetime
+                .map(|dt| dt.format("%H:%M:%S").to_string())
+                .unwrap_or_else(|| "N/A".to_string());
+            let client_ip = record.client_ip.as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("N/A");
+            let username = record.username.as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("N/A");
+            let url_host = record.url_host.as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("N/A");
+            let status_code = record.response_statuscode
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
+            let recv_bytes = record.recv_byte
+                .map(|b| format_bytes(b))
+                .unwrap_or_else(|| "N/A".to_string());
+            let sent_bytes = record.sent_byte
+                .map(|b| format_bytes(b))
+                .unwrap_or_else(|| "N/A".to_string());
+            let action = record.action_names.as_ref()
+                .map(|s| if s.len() > 15 { format!("{}...", &s[..12]) } else { s.clone() })
+                .unwrap_or_else(|| "N/A".to_string());
+
+            Row::new(vec![
+                Cell::from(datetime).style(style),
+                Cell::from(client_ip).style(style),
+                Cell::from(username).style(style),
+                Cell::from(url_host).style(style),
+                Cell::from(status_code).style(style),
+                Cell::from(recv_bytes).style(style),
+                Cell::from(sent_bytes).style(style),
+                Cell::from(action).style(style),
+            ])
+        })
+        .collect();
+
+    let title = format!(
+        "로그 목록 (총 {}개, 페이지 {}/{})",
+        app.traffic_logs.log_records.len(),
+        app.traffic_logs.current_page + 1,
+        app.traffic_logs.total_pages.max(1)
+    );
+
+    let table = Table::new(rows, [
+        Constraint::Length(10),  // 시간
+        Constraint::Length(16),  // 클라이언트IP
+        Constraint::Length(12),  // 사용자
+        Constraint::Min(20),     // 호스트
+        Constraint::Length(8),   // 상태코드
+        Constraint::Length(10),  // 수신
+        Constraint::Length(10),  // 송신
+        Constraint::Length(15),  // 액션
+    ])
+    .header(Row::new(vec![
+        Cell::from("시간").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("클라이언트IP").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("사용자").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("호스트").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("상태").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("수신").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("송신").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("액션").style(Style::default().add_modifier(Modifier::BOLD)),
+    ]))
+    .block(Block::default().borders(Borders::ALL).title(title))
+    .highlight_style(Style::default().bg(Color::Blue))
+    .highlight_symbol(">> ");
+
+    frame.render_stateful_widget(table, area, &mut app.traffic_logs.table_state);
 }
 
 fn draw_summary_table(_frame: &mut Frame, _area: Rect, analysis: &crate::traffic_log_parser::TopNAnalysis, _app: &App) -> Table<'static> {

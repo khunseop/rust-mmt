@@ -22,8 +22,8 @@ impl Default for TrafficLogCollectorConfig {
     fn default() -> Self {
         Self {
             ssh_port: 22,
-            timeout_sec: 10,
-            limit: 200,
+            timeout_sec: 30,
+            limit: 500,
             direction: LogDirection::Tail,
         }
     }

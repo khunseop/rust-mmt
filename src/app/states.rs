@@ -675,15 +675,30 @@ pub struct TrafficLogsState {
     pub spinner_frame: usize,
     pub top_n: usize, // TOP N 개수 (기본값: 20)
     pub view_mode: TrafficLogViewMode, // 표시 모드
+    // 로그 조회 관련 필드
+    pub log_records: Vec<crate::traffic_log_parser::TrafficLogRecord>,
+    pub log_limit: usize, // 조회할 로그 수 (기본값: 500)
+    pub query_status: CollectionStatus,
+    pub query_progress: Option<(usize, usize)>,
+    pub last_query_time: Option<chrono::DateTime<chrono::Local>>,
+    pub query_start_time: Option<chrono::DateTime<chrono::Local>>,
+    // 페이지네이션
+    pub current_page: usize,
+    pub page_size: usize,
+    pub total_pages: usize,
+    pub table_state: ratatui::widgets::TableState,
+    // 프록시 선택 (숫자 인덱스)
+    pub proxy_list_index: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum TrafficLogViewMode {
     #[default]
-    Summary,  // 요약 정보
+    Summary,    // 요약 정보
     TopClients, // TOP 클라이언트
     TopHosts,   // TOP 호스트
     TopUrls,    // TOP URL
+    LogList,    // 로그 목록
 }
 
 impl TrafficLogsState {
@@ -700,6 +715,19 @@ impl TrafficLogsState {
             spinner_frame: 0,
             top_n: 20,
             view_mode: TrafficLogViewMode::Summary,
+            // 로그 조회 관련
+            log_records: Vec::new(),
+            log_limit: 500,
+            query_status: CollectionStatus::Idle,
+            query_progress: None,
+            last_query_time: None,
+            query_start_time: None,
+            // 페이지네이션
+            current_page: 0,
+            page_size: 50,
+            total_pages: 0,
+            table_state: ratatui::widgets::TableState::default(),
+            proxy_list_index: 0,
         }
     }
 
@@ -708,16 +736,115 @@ impl TrafficLogsState {
             TrafficLogViewMode::Summary => TrafficLogViewMode::TopClients,
             TrafficLogViewMode::TopClients => TrafficLogViewMode::TopHosts,
             TrafficLogViewMode::TopHosts => TrafficLogViewMode::TopUrls,
-            TrafficLogViewMode::TopUrls => TrafficLogViewMode::Summary,
+            TrafficLogViewMode::TopUrls => TrafficLogViewMode::LogList,
+            TrafficLogViewMode::LogList => TrafficLogViewMode::Summary,
         };
     }
 
     pub fn previous_view_mode(&mut self) {
         self.view_mode = match self.view_mode {
-            TrafficLogViewMode::Summary => TrafficLogViewMode::TopUrls,
+            TrafficLogViewMode::Summary => TrafficLogViewMode::LogList,
             TrafficLogViewMode::TopClients => TrafficLogViewMode::Summary,
             TrafficLogViewMode::TopHosts => TrafficLogViewMode::TopClients,
             TrafficLogViewMode::TopUrls => TrafficLogViewMode::TopHosts,
+            TrafficLogViewMode::LogList => TrafficLogViewMode::TopUrls,
         };
+    }
+
+    /// 테이블에서 다음 행 선택
+    pub fn next(&mut self, items_count: usize) {
+        if items_count == 0 {
+            return;
+        }
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i >= items_count - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
+    }
+
+    /// 테이블에서 이전 행 선택
+    pub fn previous(&mut self, items_count: usize) {
+        if items_count == 0 {
+            return;
+        }
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    items_count - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
+    }
+
+    /// 다음 페이지로 이동
+    pub fn next_page(&mut self) {
+        if self.current_page < self.total_pages.saturating_sub(1) {
+            self.current_page += 1;
+            self.table_state.select(Some(0));
+        }
+    }
+
+    /// 이전 페이지로 이동
+    pub fn previous_page(&mut self) {
+        if self.current_page > 0 {
+            self.current_page -= 1;
+            self.table_state.select(Some(0));
+        }
+    }
+
+    /// 첫 페이지로 이동
+    pub fn first_page(&mut self) {
+        self.current_page = 0;
+        self.table_state.select(Some(0));
+    }
+
+    /// 마지막 페이지로 이동
+    pub fn last_page(&mut self) {
+        self.current_page = self.total_pages.saturating_sub(1);
+        self.table_state.select(Some(0));
+    }
+
+    /// 총 페이지 수 업데이트
+    pub fn update_total_pages(&mut self, total_items: usize) {
+        self.total_pages = if total_items == 0 {
+            0
+        } else {
+            (total_items + self.page_size - 1) / self.page_size
+        };
+        // 현재 페이지가 범위를 벗어나면 조정
+        if self.current_page >= self.total_pages && self.total_pages > 0 {
+            self.current_page = self.total_pages - 1;
+        }
+    }
+
+    /// 다음 프록시 선택
+    pub fn next_proxy(&mut self, proxy_count: usize) {
+        if proxy_count == 0 {
+            return;
+        }
+        self.proxy_list_index = (self.proxy_list_index + 1) % proxy_count;
+    }
+
+    /// 이전 프록시 선택
+    pub fn previous_proxy(&mut self, proxy_count: usize) {
+        if proxy_count == 0 {
+            return;
+        }
+        if self.proxy_list_index == 0 {
+            self.proxy_list_index = proxy_count - 1;
+        } else {
+            self.proxy_list_index -= 1;
+        }
     }
 }
