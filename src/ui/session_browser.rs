@@ -288,7 +288,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 "조회 실패".to_string()
             }
         } else {
-            "데이터가 없습니다. [S] 키를 눌러 조회하세요.".to_string()
+            "데이터가 없습니다. [R] 키를 눌러 조회하세요.".to_string()
         };
         Table::new(
             vec![Row::new(vec![
@@ -480,7 +480,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let total_columns = 19;
     let current_col = app.session_browser.column_offset + 1;
     let help_text = vec![
-        format!("Tab: 탭전환 | q: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | R: 세션조회 | Enter: 상세보기", 
+        format!("Tab: 탭전환 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | R: 세션조회 | Enter: 상세보기", 
             current_col, total_columns),
         format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home/End: 첫/마지막페이지 | /: 검색 | S: 정렬(컬럼선택시)"),
     ];

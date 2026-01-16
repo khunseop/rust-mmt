@@ -194,13 +194,17 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
-                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
-                                && app_guard.session_browser.show_detail_modal {
-                                // 모달이 열려있으면 모달만 닫기
-                                app_guard.session_browser.close_detail_modal();
-                            } else {
-                                app_guard.should_quit = true;
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                if app_guard.session_browser.search_mode {
+                                    // 검색 모드에서는 문자 입력
+                                    app_guard.session_browser.add_search_char('q');
+                                } else if app_guard.session_browser.show_detail_modal {
+                                    // 모달이 열려있으면 모달만 닫기
+                                    app_guard.session_browser.close_detail_modal();
+                                }
+                                // q 키로 종료하지 않음 (Ctrl+C 사용)
                             }
+                            // q 키로 종료하지 않음 (Ctrl+C 사용)
                         }
                         KeyCode::Char('+') | KeyCode::Char('=') => {
                             if app_guard.current_tab == crate::app::TabIndex::ResourceUsage {
@@ -325,13 +329,10 @@ fn run_app<B: Backend>(
                                 } else if app_guard.session_browser.selected_column.is_some() {
                                     // 컬럼이 선택되어 있으면 컬럼 선택 해제
                                     app_guard.session_browser.clear_column_selection();
-                                } else {
-                                    // 그 외에는 종료
-                                    app_guard.should_quit = true;
                                 }
-                            } else {
-                                app_guard.should_quit = true;
+                                // Esc로 종료하지 않음 (Ctrl+C 사용)
                             }
+                            // Esc로 종료하지 않음 (Ctrl+C 사용)
                         }
                         KeyCode::PageDown => {
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
