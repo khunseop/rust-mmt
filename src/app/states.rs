@@ -572,12 +572,29 @@ impl SessionBrowserState {
         self.selected_column = None;
     }
 
-    /// 검색 모드 토글
+    /// 검색 모드 시작
+    pub fn start_search_mode(&mut self) {
+        self.search_mode = true;
+    }
+
+    /// 검색 모드 종료 (검색어 유지)
+    pub fn finish_search_mode(&mut self) {
+        self.search_mode = false;
+        // 검색어는 유지
+    }
+
+    /// 검색 취소 (검색어 초기화)
+    pub fn cancel_search_mode(&mut self) {
+        self.search_mode = false;
+        self.search_query.clear();
+    }
+
+    /// 검색 모드 토글 (하위 호환성)
     pub fn toggle_search_mode(&mut self) {
-        self.search_mode = !self.search_mode;
-        if !self.search_mode {
-            // 검색 모드 종료 시 검색어 초기화
-            self.search_query.clear();
+        if self.search_mode {
+            self.cancel_search_mode();
+        } else {
+            self.start_search_mode();
         }
     }
 

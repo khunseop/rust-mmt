@@ -450,14 +450,26 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             Cell::from(header_text).style(style)
         }).collect();
 
+        let title = if app.session_browser.search_query.is_empty() {
+            format!(
+                "세션 목록 (총 {}개, 페이지 {}/{})",
+                total_filtered,
+                app.session_browser.current_page + 1,
+                app.session_browser.total_pages.max(1)
+            )
+        } else {
+            format!(
+                "세션 목록 [검색: \"{}\"] ({}개, 페이지 {}/{})",
+                app.session_browser.search_query,
+                total_filtered,
+                app.session_browser.current_page + 1,
+                app.session_browser.total_pages.max(1)
+            )
+        };
+        
         Table::new(rows, visible_constraints)
         .header(Row::new(header_cells))
-        .block(Block::default().borders(Borders::ALL).title(format!(
-            "세션 목록 (총 {}개, 페이지 {}/{})",
-            total_filtered,
-            app.session_browser.current_page + 1,
-            app.session_browser.total_pages.max(1)
-        )))
+        .block(Block::default().borders(Borders::ALL).title(title))
         .highlight_style(Style::default().bg(Color::Blue))
         .highlight_symbol(">> ")
     };
@@ -467,15 +479,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // 키보드 단축키 도움말
     let total_columns = 19;
     let current_col = app.session_browser.column_offset + 1;
-    let search_status = if !app.session_browser.search_query.is_empty() {
-        format!(" [검색중: \"{}\"]", app.session_browser.search_query)
-    } else {
-        String::new()
-    };
     let help_text = vec![
-        format!("Tab: 탭전환 | q: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회 | Enter: 상세보기{}", 
-            current_col, total_columns, search_status),
-        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home/End: 첫/마지막페이지 | /: 검색시작 | Shift+S: 정렬"),
+        format!("Tab: 탭전환 | q: 종료 | ↑↓: 행이동 | ←→: 컬럼스크롤({}/{}) | Shift+←→: 그룹선택 | R: 세션조회 | Enter: 상세보기", 
+            current_col, total_columns),
+        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home/End: 첫/마지막페이지 | /: 검색 | S: 정렬(컬럼선택시)"),
     ];
     
     if app.session_browser.search_mode {
@@ -499,13 +506,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         let cursor = "█";
         let search_display = format!("검색어: {}{}", app.session_browser.search_query, cursor);
         let result_info = if app.session_browser.search_query.is_empty() {
-            format!("전체 {}건", total_filtered)
+            format!("전체 {}건 | Enter: 완료 | Esc: 취소", total_filtered)
         } else {
-            format!("검색결과 {}건", total_filtered)
+            format!("검색결과 {}건 | Enter: 완료(유지) | Esc: 취소(초기화)", total_filtered)
         };
         frame.render_widget(
             Paragraph::new(format!("{}\n{}", search_display, result_info))
-                .block(Block::default().borders(Borders::ALL).title("검색 [Esc: 종료, Enter: 검색완료]"))
+                .block(Block::default().borders(Borders::ALL).title("검색 모드"))
                 .style(Style::default().fg(Color::Yellow)),
             search_chunks[1],
         );
