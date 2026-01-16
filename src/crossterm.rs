@@ -122,7 +122,18 @@ fn run_app<B: Backend>(
                     let mut app_guard = rt.block_on(app.lock());
                     match key.code {
                         KeyCode::Left | KeyCode::Char('h') => {
-                            if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                && app_guard.session_browser.selected_column.is_some() {
+                                // Ctrl+←: 컬럼 순서 변경 (왼쪽으로 이동)
+                                if let Some(col_idx) = app_guard.session_browser.selected_column {
+                                    app_guard.session_browser.move_column_left(col_idx);
+                                    // 선택된 컬럼도 함께 이동
+                                    if col_idx > 0 {
+                                        app_guard.session_browser.selected_column = Some(col_idx - 1);
+                                    }
+                                }
+                            } else if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
                                 app_guard.on_group_previous();
                             } else {
                                 app_guard.on_left();
@@ -130,7 +141,18 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Up | KeyCode::Char('k') => app_guard.on_up(),
                         KeyCode::Right | KeyCode::Char('l') => {
-                            if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                && app_guard.session_browser.selected_column.is_some() {
+                                // Ctrl+→: 컬럼 순서 변경 (오른쪽으로 이동)
+                                if let Some(col_idx) = app_guard.session_browser.selected_column {
+                                    app_guard.session_browser.move_column_right(col_idx);
+                                    // 선택된 컬럼도 함께 이동
+                                    if col_idx < 18 {
+                                        app_guard.session_browser.selected_column = Some(col_idx + 1);
+                                    }
+                                }
+                            } else if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
                                 app_guard.on_group_next();
                             } else {
                                 app_guard.on_right();
@@ -138,16 +160,12 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Down | KeyCode::Char('j') => app_guard.on_down(),
                         KeyCode::Tab => {
-                            // Tab 키는 항상 탭 전환만
-                            app_guard.on_right();
+                            // Tab 키는 항상 탭 전환만 (모든 탭에서 동일하게 동작)
+                            app_guard.current_tab = app_guard.current_tab.next();
                         }
                         KeyCode::BackTab => {
                             // Shift+Tab도 항상 탭 전환
-                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
-                                app_guard.current_tab = app_guard.current_tab.previous();
-                            } else {
-                                app_guard.on_left();
-                            }
+                            app_guard.current_tab = app_guard.current_tab.previous();
                         }
                         KeyCode::Char(' ') => {
                             // Space 키 처리
@@ -232,15 +250,67 @@ fn run_app<B: Backend>(
                             }
                         }
                         KeyCode::Char(c) => {
-                            if c == 'b' && app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
-                                app_guard.session_browser.previous_page();
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
+                                if app_guard.session_browser.search_mode {
+                                    // 검색 모드일 때
+                                    if c == '/' {
+                                        // / 키로 검색 모드 종료
+                                        app_guard.session_browser.toggle_search_mode();
+                                    } else {
+                                        // 검색어 입력
+                                        app_guard.session_browser.add_search_char(c);
+                                    }
+                                } else {
+                                    // 일반 모드일 때
+                                    if c == '/' {
+                                        // / 키로 검색 모드 시작
+                                        app_guard.session_browser.toggle_search_mode();
+                                    } else if c == 'b' {
+                                        app_guard.session_browser.previous_page();
+                                    } else {
+                                        app_guard.on_key(c);
+                                    }
+                                }
+                            } else if c == 'a' || c == 'A' {
+                                // A 키로 트래픽 로그 분석 시작
+                                if app_guard.current_tab == crate::app::TabIndex::TrafficLogs {
+                                    if let Some(proxy_id) = app_guard.traffic_logs.selected_proxy {
+                                        let proxy_id_u32 = proxy_id as u32;
+                                        app_guard.traffic_logs.analysis_status = crate::app::CollectionStatus::Starting;
+                                        app_guard.traffic_logs.analysis_start_time = Some(chrono::Local::now());
+                                        
+                                        let app_clone = app.clone();
+                                        drop(app_guard);
+                                        rt.spawn(async move {
+                                            let mut app_guard = app_clone.lock().await;
+                                            if let Err(e) = app_guard.start_traffic_log_analysis(proxy_id_u32).await {
+                                                eprintln!("트래픽 로그 분석 실패: {}", e);
+                                                app_guard.traffic_logs.analysis_status = crate::app::CollectionStatus::Failed;
+                                                app_guard.traffic_logs.last_error = Some(format!("{}", e));
+                                                app_guard.traffic_logs.analysis_start_time = None;
+                                            }
+                                        });
+                                        app_guard = rt.block_on(app.lock());
+                                    }
+                                } else {
+                                    app_guard.on_key(c);
+                                }
                             } else {
                                 app_guard.on_key(c);
                             }
                         }
+                        KeyCode::Backspace => {
+                            if app_guard.current_tab == crate::app::TabIndex::SessionBrowser
+                                && app_guard.session_browser.search_mode {
+                                app_guard.session_browser.backspace_search();
+                            }
+                        }
                         KeyCode::Esc => {
                             if app_guard.current_tab == crate::app::TabIndex::SessionBrowser {
-                                if app_guard.session_browser.show_detail_modal {
+                                if app_guard.session_browser.search_mode {
+                                    // 검색 모드 종료
+                                    app_guard.session_browser.toggle_search_mode();
+                                } else if app_guard.session_browser.show_detail_modal {
                                     // 모달이 열려있으면 모달만 닫기
                                     app_guard.session_browser.close_detail_modal();
                                 } else if app_guard.session_browser.selected_column.is_some() {

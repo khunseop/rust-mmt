@@ -241,5 +241,129 @@ impl CsvWriter {
 
         Ok(filepath)
     }
+
+    /// 트래픽 로그 분석 결과를 CSV 파일로 저장합니다.
+    pub fn save_traffic_analysis(analysis: &crate::traffic_log_parser::TopNAnalysis) -> Result<PathBuf> {
+        // logs 디렉토리 생성
+        let logs_dir = PathBuf::from("logs");
+        fs::create_dir_all(&logs_dir).context("Failed to create logs directory")?;
+
+        // 파일명 생성 (타임스탬프 포함)
+        let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("traffic_analysis_{}.csv", timestamp);
+        let filepath = logs_dir.join(&filename);
+
+        // CSV 작성
+        let mut wtr = csv::Writer::from_path(&filepath)
+            .context("Failed to create CSV file")?;
+
+        // 요약 정보 저장
+        wtr.write_record(&[
+            "type", "category", "rank", "value", "request_count", "recv_bytes", "sent_bytes"
+        ])
+        .context("Failed to write CSV header")?;
+
+        // TOP 클라이언트
+        for (i, client) in analysis.top_clients.iter().enumerate() {
+            wtr.write_record(&[
+                "top_clients".to_string(),
+                "client_ip".to_string(),
+                (i + 1).to_string(),
+                client.client_ip.clone(),
+                client.request_count.to_string(),
+                client.recv_bytes.to_string(),
+                client.sent_bytes.to_string(),
+            ])
+            .context("Failed to write CSV record")?;
+        }
+
+        // TOP 호스트
+        for (i, host) in analysis.top_hosts.iter().enumerate() {
+            wtr.write_record(&[
+                "top_hosts".to_string(),
+                "host".to_string(),
+                (i + 1).to_string(),
+                host.host.clone(),
+                host.request_count.to_string(),
+                host.recv_bytes.to_string(),
+                host.sent_bytes.to_string(),
+            ])
+            .context("Failed to write CSV record")?;
+        }
+
+        // TOP URL
+        for (i, url) in analysis.top_urls.iter().enumerate() {
+            wtr.write_record(&[
+                "top_urls".to_string(),
+                "url".to_string(),
+                (i + 1).to_string(),
+                url.url.clone(),
+                url.request_count.to_string(),
+                String::new(), // recv_bytes 없음
+                String::new(), // sent_bytes 없음
+            ])
+            .context("Failed to write CSV record")?;
+        }
+
+        // 요약 통계
+        wtr.write_record(&[
+            "summary".to_string(),
+            "total_records".to_string(),
+            String::new(),
+            analysis.total_records.to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ])
+        .context("Failed to write CSV record")?;
+
+        wtr.write_record(&[
+            "summary".to_string(),
+            "parsed_records".to_string(),
+            String::new(),
+            analysis.parsed_records.to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ])
+        .context("Failed to write CSV record")?;
+
+        wtr.write_record(&[
+            "summary".to_string(),
+            "total_recv_bytes".to_string(),
+            String::new(),
+            analysis.total_recv_bytes.to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ])
+        .context("Failed to write CSV record")?;
+
+        wtr.write_record(&[
+            "summary".to_string(),
+            "total_sent_bytes".to_string(),
+            String::new(),
+            analysis.total_sent_bytes.to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ])
+        .context("Failed to write CSV record")?;
+
+        wtr.write_record(&[
+            "summary".to_string(),
+            "blocked_count".to_string(),
+            String::new(),
+            analysis.blocked_count.to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ])
+        .context("Failed to write CSV record")?;
+
+        wtr.flush().context("Failed to flush CSV file")?;
+
+        Ok(filepath)
+    }
 }
 

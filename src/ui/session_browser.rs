@@ -102,7 +102,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .constraints([
             Constraint::Length(3),  // 컨트롤 영역
             Constraint::Min(3),     // 데이터 테이블
-            Constraint::Length(4),  // 키보드 단축키 도움말
+            Constraint::Length(if app.session_browser.search_mode { 5 } else { 4 }),  // 키보드 단축키 도움말 + 검색 UI
         ])
         .split(area);
 
@@ -198,49 +198,80 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|p| (p.id, p.group.clone()))
         .collect();
 
-    // 총 개수 먼저 계산 (페이지네이션 업데이트용)
-    let total_filtered = match &app.session_browser.selected_group {
-        None => app.session_browser.sessions.len(),
-        Some(selected_group) => {
-            app.session_browser.sessions
-                .iter()
-                .filter(|session| {
-                    proxy_group_map.get(&session.proxy_id)
-                        .map(|group| group == selected_group)
-                        .unwrap_or(false)
-                })
-                .count()
-        }
-    };
+    // 필요한 값들을 먼저 가져오기
+    let selected_group = app.session_browser.selected_group.clone();
+    let search_query = app.session_browser.search_query.clone();
+    let current_page = app.session_browser.current_page;
+    let page_size = app.session_browser.page_size;
 
-    // 페이지네이션 업데이트
-    app.session_browser.update_total_pages(total_filtered);
+    // 필터링 및 페이지네이션된 세션 데이터를 클론하여 소유 (borrow 문제 해결)
+    let (paginated_sessions, total_filtered): (Vec<crate::app::SessionData>, usize) = {
+        let sessions_ref = &app.session_browser.sessions;
 
-    // 선택된 그룹에 따라 세션 필터링 (이미 정렬된 sessions 사용)
-    let filtered_sessions: Vec<&crate::app::SessionData> = match &app.session_browser.selected_group {
-        None => {
-            app.session_browser.sessions.iter().collect()
-        }
-        Some(selected_group) => {
-            app.session_browser.sessions
-                .iter()
+        // 선택된 그룹에 따라 세션 필터링
+        let group_filtered: Vec<&crate::app::SessionData> = match &selected_group {
+            None => {
+                sessions_ref.iter().collect()
+            }
+            Some(selected_group) => {
+                sessions_ref
+                    .iter()
+                    .filter(|session| {
+                        proxy_group_map.get(&session.proxy_id)
+                            .map(|group| group == selected_group)
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            }
+        };
+
+        // 검색어로 필터링
+        let filtered_sessions: Vec<&crate::app::SessionData> = if search_query.is_empty() {
+            group_filtered
+        } else {
+            let query = search_query.to_lowercase();
+            group_filtered.into_iter()
                 .filter(|session| {
-                    proxy_group_map.get(&session.proxy_id)
-                        .map(|group| group == selected_group)
-                        .unwrap_or(false)
+                    // 모든 필드에서 검색
+                    session.host.to_lowercase().contains(&query) ||
+                    session.transaction.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.protocol.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.cust_id.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.user_name.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.client_ip.to_lowercase().contains(&query) ||
+                    session.client_side_mwg_ip.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.server_side_mwg_ip.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.server_ip.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.status.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.url.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                    session.cl_bytes_received.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                    session.cl_bytes_sent.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                    session.srv_bytes_received.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                    session.srv_bytes_sent.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                    session.trxn_index.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                    session.age_seconds.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                    session.in_use.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                    session.creation_time.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string().to_lowercase().contains(&query)).unwrap_or(false)
                 })
                 .collect()
-        }
-    };
+        };
 
-    // 페이지네이션 적용
-    let page_start = app.session_browser.current_page * app.session_browser.page_size;
-    let page_end = (page_start + app.session_browser.page_size).min(total_filtered);
-    let paginated_sessions: Vec<&crate::app::SessionData> = if page_start < total_filtered {
-        filtered_sessions[page_start..page_end].iter().copied().collect()
-    } else {
-        Vec::new()
+        let total = filtered_sessions.len();
+        let page_start = current_page * page_size;
+        let page_end = (page_start + page_size).min(total);
+        
+        // 소유 데이터로 클론하여 borrow 종료
+        let paginated: Vec<crate::app::SessionData> = if page_start < total {
+            filtered_sessions[page_start..page_end].iter().map(|s| (*s).clone()).collect()
+        } else {
+            Vec::new()
+        };
+        
+        (paginated, total)
     };
+    
+    // 페이지네이션 업데이트 (borrow 종료 후 가능)
+    app.session_browser.update_total_pages(total_filtered);
 
     // 테이블 영역
     let table = if paginated_sessions.is_empty() {
@@ -267,9 +298,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         )
         .block(Block::default().borders(Borders::ALL).title("세션 목록"))
     } else {
-        // 컬럼 너비 계산
+        // 컬럼 너비 계산을 위해 참조 벡터 생성
+        let paginated_refs: Vec<&crate::app::SessionData> = paginated_sessions.iter().collect();
         let table_width = chunks[1].width as usize;
-        let constraints = calculate_column_widths(&paginated_sessions, table_width, 30);
+        let constraints = calculate_column_widths(&paginated_refs, table_width, 30);
 
         let rows: Vec<Row> = paginated_sessions
             .iter()
@@ -332,12 +364,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     Cell::from(url_display).style(style),
                 ];
 
+                // 컬럼 순서 적용
+                let ordered_cells: Vec<Cell> = app.session_browser.column_order.iter()
+                    .filter_map(|&idx| all_cells.get(idx))
+                    .cloned()
+                    .collect();
+
                 // 컬럼 오프셋에 따라 표시할 컬럼 선택
                 let max_visible = 10;
-                let start_idx = app.session_browser.column_offset.min(all_cells.len());
-                let end_idx = (start_idx + max_visible).min(all_cells.len());
-                let visible_cells = if start_idx < all_cells.len() {
-                    all_cells[start_idx..end_idx].to_vec()
+                let start_idx = app.session_browser.column_offset.min(ordered_cells.len());
+                let end_idx = (start_idx + max_visible).min(ordered_cells.len());
+                let visible_cells = if start_idx < ordered_cells.len() {
+                    ordered_cells[start_idx..end_idx].to_vec()
                 } else {
                     vec![Cell::from("").style(style)]
                 };
@@ -354,29 +392,47 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             "상태", "InUse", "URL",
         ];
 
+        // 컬럼 순서 적용
+        let ordered_columns: Vec<&str> = app.session_browser.column_order.iter()
+            .filter_map(|&idx| all_columns.get(idx))
+            .copied()
+            .collect();
+
         // 표시할 컬럼 선택 (최대 10개)
         let max_visible = 10;
-        let start_idx = app.session_browser.column_offset.min(all_columns.len());
-        let end_idx = (start_idx + max_visible).min(all_columns.len());
-        let visible_columns = if start_idx < all_columns.len() {
-            &all_columns[start_idx..end_idx]
+        let start_idx = app.session_browser.column_offset.min(ordered_columns.len());
+        let end_idx = (start_idx + max_visible).min(ordered_columns.len());
+        let visible_columns = if start_idx < ordered_columns.len() {
+            &ordered_columns[start_idx..end_idx]
         } else {
             &[]
         };
 
-        let visible_constraints: Vec<Constraint> = if start_idx < constraints.len() {
-            constraints[start_idx..end_idx.min(constraints.len())].to_vec()
+        // 컬럼 순서에 맞는 constraints 가져오기
+        let ordered_constraints: Vec<Constraint> = app.session_browser.column_order.iter()
+            .filter_map(|&idx| constraints.get(idx))
+            .cloned()
+            .collect();
+
+        let visible_constraints: Vec<Constraint> = if start_idx < ordered_constraints.len() {
+            ordered_constraints[start_idx..end_idx.min(ordered_constraints.len())].to_vec()
         } else {
             vec![Constraint::Percentage(100)]
         };
 
         // 헤더 생성 (정렬 표시 포함)
         let header_cells: Vec<Cell> = visible_columns.iter().enumerate().map(|(idx, name)| {
-            let col_idx = start_idx + idx;
+            // 실제 컬럼 인덱스 찾기
+            let display_idx = start_idx + idx;
+            let actual_col_idx = if display_idx < app.session_browser.column_order.len() {
+                app.session_browser.column_order[display_idx]
+            } else {
+                display_idx
+            };
             let mut header_text = (*name).to_string();
             
-            // 정렬 표시 추가
-            if app.session_browser.sort_column == Some(col_idx) {
+            // 정렬 표시 추가 (실제 컬럼 인덱스 사용)
+            if app.session_browser.sort_column == Some(actual_col_idx) {
                 if app.session_browser.sort_ascending {
                     header_text.push_str(" ↑");
                 } else {
@@ -384,8 +440,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
             
-            // 컬럼 선택 모드일 때 하이라이트
-            let style = if app.session_browser.selected_column == Some(col_idx) {
+            // 컬럼 선택 모드일 때 하이라이트 (실제 컬럼 인덱스 사용)
+            let style = if app.session_browser.selected_column == Some(actual_col_idx) {
                 Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)
             } else {
                 Style::default().add_modifier(Modifier::BOLD)
@@ -398,7 +454,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .header(Row::new(header_cells))
         .block(Block::default().borders(Borders::ALL).title(format!(
             "세션 목록 (총 {}개, 페이지 {}/{})",
-            filtered_sessions.len(),
+            total_filtered,
             app.session_browser.current_page + 1,
             app.session_browser.total_pages.max(1)
         )))
@@ -414,14 +470,42 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let help_text = vec![
         format!("Tab: 탭전환 | q: 종료 | ↑↓: 행이동 | ←→: 컬럼선택/스크롤({}/{}) | Shift+←→: 그룹선택 | S: 세션조회 | Enter: 상세보기 | Shift+S: 정렬 | Esc: 컬럼선택해제", 
             current_col, total_columns),
-        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home: 첫페이지 | End: 마지막페이지"),
+        format!("PageDown/Space: 다음페이지 | PageUp/b: 이전페이지 | Home: 첫페이지 | End: 마지막페이지 | /: 검색 | Ctrl+←→: 컬럼순서변경"),
     ];
-    frame.render_widget(
-        Paragraph::new(help_text.join("\n"))
-            .block(Block::default().borders(Borders::ALL).title("단축키"))
-            .style(Style::default().fg(Color::Gray)),
-        chunks[2],
-    );
+    
+    if app.session_browser.search_mode {
+        // 검색 모드일 때 검색 UI 표시
+        let search_chunks = Layout::default()
+            .direction(ratatui::layout::Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // 도움말
+                Constraint::Length(2),  // 검색 입력
+            ])
+            .split(chunks[2]);
+        
+        frame.render_widget(
+            Paragraph::new(help_text.join("\n"))
+                .block(Block::default().borders(Borders::ALL).title("단축키"))
+                .style(Style::default().fg(Color::Gray)),
+            search_chunks[0],
+        );
+        
+        // 검색 입력 UI
+        let search_display = format!("검색: {}", app.session_browser.search_query);
+        frame.render_widget(
+            Paragraph::new(search_display.as_str())
+                .block(Block::default().borders(Borders::ALL).title("검색 [Esc: 종료]"))
+                .style(Style::default().fg(Color::Yellow)),
+            search_chunks[1],
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(help_text.join("\n"))
+                .block(Block::default().borders(Borders::ALL).title("단축키"))
+                .style(Style::default().fg(Color::Gray)),
+            chunks[2],
+        );
+    }
 }
 
 /// 상세보기 모달 렌더링

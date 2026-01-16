@@ -122,3 +122,4 @@ pub enum CollectionStatus {
 pub struct ProxyConfig {
     pub proxies: Vec<Proxy>,
 }
+

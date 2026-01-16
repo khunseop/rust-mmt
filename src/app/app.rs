@@ -131,6 +131,10 @@ impl App {
                 // 세션 브라우저 탭에서는 컬럼 선택과 가로 스크롤 동시 처리
                 self.session_browser.select_column_left();
             }
+            TabIndex::TrafficLogs => {
+                // 트래픽 로그 탭에서는 뷰 모드 변경
+                self.traffic_logs.previous_view_mode();
+            }
             _ => {
                 // 다른 탭에서는 탭 전환
                 self.current_tab = self.current_tab.previous();
@@ -143,6 +147,10 @@ impl App {
             TabIndex::SessionBrowser => {
                 // 세션 브라우저 탭에서는 컬럼 선택과 가로 스크롤 동시 처리
                 self.session_browser.select_column_right();
+            }
+            TabIndex::TrafficLogs => {
+                // 트래픽 로그 탭에서는 뷰 모드 변경
+                self.traffic_logs.next_view_mode();
             }
             _ => {
                 // 다른 탭에서는 탭 전환
@@ -393,6 +401,67 @@ impl App {
         }
 
         self.session_browser.query_start_time = None;
+        Ok(())
+    }
+
+    /// 트래픽 로그 분석 시작 (비동기)
+    pub async fn start_traffic_log_analysis(&mut self, proxy_id: u32) -> anyhow::Result<()> {
+        // 이미 분석 중이면 무시
+        if self.traffic_logs.analysis_status == CollectionStatus::Collecting {
+            return Ok(());
+        }
+
+        // 프록시 찾기
+        let proxy = self.proxies.iter()
+            .find(|p| p.id == proxy_id)
+            .ok_or_else(|| anyhow::anyhow!("프록시를 찾을 수 없습니다: {}", proxy_id))?;
+
+        // traffic_log_path 확인
+        let log_path = proxy.traffic_log_path.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("프록시에 traffic_log_path가 설정되지 않았습니다"))?;
+
+        self.traffic_logs.last_error = None;
+        self.traffic_logs.analysis_status = CollectionStatus::Collecting;
+        self.traffic_logs.analysis_progress = Some((0, 1));
+        self.traffic_logs.analysis_start_time = Some(chrono::Local::now());
+
+        // 트래픽 로그 수집기 설정
+        let config = crate::traffic_log_collector::TrafficLogCollectorConfig {
+            ssh_port: proxy.port,
+            timeout_sec: 10,
+            limit: 200,
+            direction: crate::traffic_log_collector::LogDirection::Tail,
+        };
+        let collector = crate::traffic_log_collector::TrafficLogCollector::new(config);
+
+        // 로그 조회 및 분석
+        match collector.fetch_logs(proxy, log_path).await {
+            Ok(lines) => {
+                // 분석 실행
+                let analyzer = crate::traffic_log_parser::TrafficLogAnalyzer::new(self.traffic_logs.top_n);
+                let analysis = analyzer.analyze(&lines);
+
+                self.traffic_logs.top_n_analysis = Some(analysis);
+                self.traffic_logs.analysis_status = CollectionStatus::Success;
+                self.traffic_logs.analysis_progress = Some((1, 1));
+                self.traffic_logs.last_analysis_time = Some(chrono::Local::now());
+
+                // CSV 저장
+                if let Some(ref analysis) = self.traffic_logs.top_n_analysis {
+                    if let Err(e) = crate::csv_writer::CsvWriter::save_traffic_analysis(analysis) {
+                        self.traffic_logs.last_error = Some(format!("CSV 저장 실패: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.traffic_logs.last_error = Some(format!("트래픽 로그 분석 실패: {}", e));
+                self.traffic_logs.analysis_status = CollectionStatus::Failed;
+                self.traffic_logs.top_n_analysis = None;
+                self.traffic_logs.analysis_progress = None;
+            }
+        }
+
+        self.traffic_logs.analysis_start_time = None;
         Ok(())
     }
 

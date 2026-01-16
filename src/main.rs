@@ -6,6 +6,8 @@ mod ssh;
 mod collector;
 mod csv_writer;
 mod session_collector;
+mod traffic_log_parser;
+mod traffic_log_collector;
 
 use std::time::Duration;
 

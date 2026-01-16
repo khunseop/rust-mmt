@@ -298,6 +298,13 @@ pub struct SessionBrowserState {
     
     // 상세보기 모달
     pub show_detail_modal: bool, // 상세보기 모달 표시 여부
+    
+    // 검색 기능
+    pub search_mode: bool, // 검색 모드 활성화 여부
+    pub search_query: String, // 검색어
+    
+    // 컬럼 순서 변경
+    pub column_order: Vec<usize>, // 컬럼 순서 배열 (인덱스)
 }
 
 impl SessionBrowserState {
@@ -322,6 +329,9 @@ impl SessionBrowserState {
             sort_column: None,
             sort_ascending: true,
             show_detail_modal: false,
+            search_mode: false,
+            search_query: String::new(),
+            column_order: (0..19).collect(), // 기본 순서: 0~18
         }
     }
 
@@ -407,8 +417,8 @@ impl SessionBrowserState {
                         self.current_page += 1;
                         0 // 다음 페이지의 첫 번째 행
                     } else {
-                        // 마지막 페이지면 첫 번째 행으로
-                        0
+                        // 마지막 페이지의 마지막 행이면 그대로 유지 (wrap 하지 않음)
+                        i
                     }
                 } else {
                     i + 1
@@ -419,18 +429,18 @@ impl SessionBrowserState {
         self.table_state.select(Some(i));
     }
 
-    pub fn previous(&mut self, current_page_items: usize) {
+    pub fn previous(&mut self, _current_page_items: usize) {
         let i = match self.table_state.selected() {
             Some(i) => {
                 if i == 0 {
                     // 현재 페이지의 첫 번째 행이면 이전 페이지로 이동
                     if self.current_page > 0 {
                         self.current_page -= 1;
-                        // 이전 페이지의 마지막 행 (실제로는 페이지 크기만큼이지만, 안전하게)
-                        current_page_items.saturating_sub(1)
+                        // 이전 페이지의 마지막 행 (이전 페이지는 항상 full page)
+                        self.page_size.saturating_sub(1)
                     } else {
-                        // 첫 페이지면 마지막 행으로
-                        current_page_items.saturating_sub(1)
+                        // 첫 페이지의 첫 번째 행이면 그대로 유지 (wrap 하지 않음)
+                        0
                     }
                 } else {
                     i - 1
@@ -561,6 +571,77 @@ impl SessionBrowserState {
     pub fn clear_column_selection(&mut self) {
         self.selected_column = None;
     }
+
+    /// 검색 모드 토글
+    pub fn toggle_search_mode(&mut self) {
+        self.search_mode = !self.search_mode;
+        if !self.search_mode {
+            // 검색 모드 종료 시 검색어 초기화
+            self.search_query.clear();
+        }
+    }
+
+    /// 검색어 추가 (검색 모드일 때)
+    pub fn add_search_char(&mut self, c: char) {
+        if self.search_mode {
+            self.search_query.push(c);
+        }
+    }
+
+    /// 검색어 백스페이스 (검색 모드일 때)
+    pub fn backspace_search(&mut self) {
+        if self.search_mode {
+            self.search_query.pop();
+        }
+    }
+
+    /// 검색어로 세션 필터링
+    pub fn filter_sessions<'a>(&self, sessions: &'a [&'a crate::app::types::SessionData]) -> Vec<&'a crate::app::types::SessionData> {
+        if self.search_query.is_empty() {
+            return sessions.iter().copied().collect();
+        }
+
+        let query = self.search_query.to_lowercase();
+        sessions.iter()
+            .copied()
+            .filter(|session| {
+                // 모든 필드에서 검색
+                session.host.to_lowercase().contains(&query) ||
+                session.transaction.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.protocol.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.cust_id.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.user_name.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.client_ip.to_lowercase().contains(&query) ||
+                session.client_side_mwg_ip.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.server_side_mwg_ip.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.server_ip.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.status.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.url.as_ref().map(|s| s.to_lowercase().contains(&query)).unwrap_or(false) ||
+                session.cl_bytes_received.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                session.cl_bytes_sent.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                session.srv_bytes_received.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                session.srv_bytes_sent.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                session.trxn_index.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                session.age_seconds.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                session.in_use.map(|v| format!("{}", v).contains(&query)).unwrap_or(false) ||
+                session.creation_time.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string().to_lowercase().contains(&query)).unwrap_or(false)
+            })
+            .collect::<Vec<_>>()
+    }
+
+    /// 컬럼 순서 변경 (왼쪽으로 이동)
+    pub fn move_column_left(&mut self, col_idx: usize) {
+        if col_idx > 0 && col_idx < self.column_order.len() {
+            self.column_order.swap(col_idx, col_idx - 1);
+        }
+    }
+
+    /// 컬럼 순서 변경 (오른쪽으로 이동)
+    pub fn move_column_right(&mut self, col_idx: usize) {
+        if col_idx < self.column_order.len().saturating_sub(1) {
+            self.column_order.swap(col_idx, col_idx + 1);
+        }
+    }
 }
 
 /// 트래픽 로그 분석 탭 상태
@@ -568,6 +649,24 @@ impl SessionBrowserState {
 pub struct TrafficLogsState {
     pub selected_proxy: Option<usize>,
     pub analysis_result: Option<String>,
+    pub top_n_analysis: Option<crate::traffic_log_parser::TopNAnalysis>,
+    pub analysis_status: CollectionStatus,
+    pub analysis_progress: Option<(usize, usize)>,
+    pub last_analysis_time: Option<chrono::DateTime<chrono::Local>>,
+    pub last_error: Option<String>,
+    pub analysis_start_time: Option<chrono::DateTime<chrono::Local>>,
+    pub spinner_frame: usize,
+    pub top_n: usize, // TOP N 개수 (기본값: 20)
+    pub view_mode: TrafficLogViewMode, // 표시 모드
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrafficLogViewMode {
+    #[default]
+    Summary,  // 요약 정보
+    TopClients, // TOP 클라이언트
+    TopHosts,   // TOP 호스트
+    TopUrls,    // TOP URL
 }
 
 impl TrafficLogsState {
@@ -575,6 +674,33 @@ impl TrafficLogsState {
         Self {
             selected_proxy: None,
             analysis_result: None,
+            top_n_analysis: None,
+            analysis_status: CollectionStatus::Idle,
+            analysis_progress: None,
+            last_analysis_time: None,
+            last_error: None,
+            analysis_start_time: None,
+            spinner_frame: 0,
+            top_n: 20,
+            view_mode: TrafficLogViewMode::Summary,
         }
+    }
+
+    pub fn next_view_mode(&mut self) {
+        self.view_mode = match self.view_mode {
+            TrafficLogViewMode::Summary => TrafficLogViewMode::TopClients,
+            TrafficLogViewMode::TopClients => TrafficLogViewMode::TopHosts,
+            TrafficLogViewMode::TopHosts => TrafficLogViewMode::TopUrls,
+            TrafficLogViewMode::TopUrls => TrafficLogViewMode::Summary,
+        };
+    }
+
+    pub fn previous_view_mode(&mut self) {
+        self.view_mode = match self.view_mode {
+            TrafficLogViewMode::Summary => TrafficLogViewMode::TopUrls,
+            TrafficLogViewMode::TopClients => TrafficLogViewMode::Summary,
+            TrafficLogViewMode::TopHosts => TrafficLogViewMode::TopClients,
+            TrafficLogViewMode::TopUrls => TrafficLogViewMode::TopHosts,
+        };
     }
 }
